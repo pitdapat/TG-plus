@@ -140,10 +140,25 @@ android {
 
 
     defaultConfig {
-        def plusApiId = System.getenv("TELEGRAM_PLUS_API_ID") ?: "0"
-        if (!(plusApiId ==~ /[0-9]+/)) throw new GradleException("TELEGRAM_PLUS_API_ID must be numeric")
+        def plusApiId = System.getenv("TELEGRAM_PLUS_API_ID") ?: ""
+        def plusApiHash = System.getenv("TELEGRAM_PLUS_API_HASH") ?: ""
+        if ((plusApiId.isEmpty()) != (plusApiHash.isEmpty())) {
+            throw new GradleException("Set both TELEGRAM_PLUS_API_ID and TELEGRAM_PLUS_API_HASH, or leave both unset for upstream test defaults")
+        }
+        if (plusApiId.isEmpty()) {
+            // Public sample credentials shipped in upstream BuildVars.java at
+            // f2908b14133bbffbf7ab04f641ecb5bfaf533242; testing only.
+            plusApiId = "4"
+            plusApiHash = "014b35b6184100b085b0d0572f9b5103"
+        }
+        if (!(plusApiId ==~ /[0-9]+/) || plusApiId.toBigInteger() < 1 || plusApiId.toBigInteger() > Integer.MAX_VALUE) {
+            throw new GradleException("TELEGRAM_PLUS_API_ID must be a positive 32-bit integer")
+        }
+        if (!(plusApiHash ==~ /[a-fA-F0-9]{32}/)) {
+            throw new GradleException("TELEGRAM_PLUS_API_HASH must be a 32-character hexadecimal value")
+        }
         buildConfigField "int", "TELEGRAM_PLUS_API_ID", plusApiId
-        buildConfigField "String", "TELEGRAM_PLUS_API_HASH", groovy.json.JsonOutput.toJson(System.getenv("TELEGRAM_PLUS_API_HASH") ?: "")
+        buildConfigField "String", "TELEGRAM_PLUS_API_HASH", groovy.json.JsonOutput.toJson(plusApiHash)
         minSdkVersion 23
         ndk { abiFilters "arm64-v8a" }
         targetSdkVersion 36

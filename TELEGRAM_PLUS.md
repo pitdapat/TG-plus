@@ -25,11 +25,11 @@ TELEGRAM_PLUS_KEY_ALIAS and TELEGRAM_PLUS_KEY_PASSWORD.
 Legacy signing password properties are removed. No private keystore is committed. The original test key is not available here;
 a different key cannot update the installed APK in place.
 
-Set TELEGRAM_PLUS_API_ID and TELEGRAM_PLUS_API_HASH to your own Telegram developer application credentials. TELEGRAM_PLUS_MAPS_API_KEY is optional. Bundled upstream API, Maps, SafetyNet, OAuth and Huawei identifiers have been removed or replaced by environment configuration. Camera and clipboard behavior remains the recovered baseline.
+For personal testing, leaving TELEGRAM_PLUS_API_ID and TELEGRAM_PLUS_API_HASH unset now uses the public sample credentials shipped with upstream Telegram at this source revision, matching the earlier APK. Supply both environment variables to override them with your own developer application. Partial, empty or invalid overrides are rejected. Telegram limits the bundled sample credentials to testing; use your own before distributing a client. TELEGRAM_PLUS_MAPS_API_KEY is optional. Bundled Maps, SafetyNet, OAuth and Huawei identifiers remain removed or replaced by environment configuration. Camera and clipboard behavior remains the recovered baseline.
 Firebase push was not configured in the original APK.
 The original README's local signing path is historical; use the variables above.
 
-Full Android recompilation has not been performed during this baseline recovery.
+The GitHub ARM64 debug build has passed full Android compilation, recovered Java checks, signature/package verification and artifact upload. Login configuration was subsequently restored to the original upstream public test defaults; phone login must be tested with the rebuilt APK.
 The pure Java tests and XML/patch checks are repeatable locally.
 
 ## New installation identity
@@ -41,4 +41,4 @@ The public certificate SHA-256 is:
 a11bf05dd7c3d8ca457a5fa1204eea3fd0870d2c47853ffc200d3db7a0afad93
 Use the same key for all future updates. The key/passwords are never stored here.
 A new installation requires logging in; secret chats and local-only content
-remain in the old installation. This configuration has not yet produced an APK.
+remain in the old installation. A signed side-by-side APK has been built; subsequent builds use this same key and package to update it in place.

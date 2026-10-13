@@ -86,8 +86,8 @@ jobs:
         shell: bash
         run: |
           if [ -z "$TELEGRAM_PLUS_API_ID" ] || [ -z "$TELEGRAM_PLUS_API_HASH" ]; then
-            echo "::notice::Building a signed test APK without valid Telegram API credentials. Login is not configured."
-            echo "### Test APK: Telegram login credentials are not configured." >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice::Using Telegram public upstream sample API credentials for this personal test build."
+            echo "### Personal test APK: upstream sample API credentials included." >> "$GITHUB_STEP_SUMMARY"
           else
             echo "### Telegram API credentials supplied from repository secrets." >> "$GITHUB_STEP_SUMMARY"
           fi
@@ -99,6 +99,26 @@ jobs:
           -PRELEASE_STORE_PASSWORD=unused
           -PRELEASE_KEY_PASSWORD=unused
           -PRELEASE_KEY_ALIAS=unused
+
+      - name: Verify compiled API configuration
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import glob, os, re
+          from pathlib import Path
+          files = glob.glob('TMessagesProj/build/generated/source/buildConfig/debug/**/BuildConfig.java', recursive=True)
+          if len(files) != 1:
+              raise SystemExit('Expected one generated Telegram BuildConfig.')
+          source = Path(files[0]).read_text()
+          api_id = re.search(r'TELEGRAM_PLUS_API_ID\s*=\s*(\d+)\s*;', source)
+          api_hash = re.search(r'TELEGRAM_PLUS_API_HASH\s*=\s*"([a-fA-F0-9]{32})"\s*;', source)
+          if not api_id or int(api_id.group(1)) < 1 or not api_hash:
+              raise SystemExit('Generated Telegram API configuration is empty or invalid.')
+          if not os.environ.get('TELEGRAM_PLUS_API_ID') and not os.environ.get('TELEGRAM_PLUS_API_HASH'):
+              if api_id.group(1) != '4' or api_hash.group(1) != '014b35b6184100b085b0d0572f9b5103':
+                  raise SystemExit('Upstream public test defaults were not compiled correctly.')
+          print('Compiled Telegram API configuration verified; values are not logged.')
+          PY
 
       - name: Verify APK signature and package
         shell: bash
