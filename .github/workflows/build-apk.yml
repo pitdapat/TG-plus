@@ -49,6 +49,12 @@ jobs:
           gradle-version: '8.13'
           cache-disabled: true
 
+      - name: Set up Android SDK command-line tools
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+        with:
+          packages: 'platform-tools'
+          log-accepted-android-sdk-licenses: false
+
       - name: Install Android build dependencies
         shell: bash
         run: |
