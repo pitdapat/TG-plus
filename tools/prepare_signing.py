@@ -1,0 +1,84 @@
+#!/usr/bin/env python3
+import base64, hashlib, io, os, re, shutil, subprocess, tempfile, zipfile
+from pathlib import Path
+
+def fail(message):
+    print('::error::' + message)
+    raise SystemExit(1)
+
+encoded = os.environ.get('SIGNING_BUNDLE', '')
+if not encoded:
+    fail('TELEGRAM_PLUS_SIGNING_BUNDLE_BASE64 is missing or unavailable.')
+try:
+    data = base64.b64decode(''.join(encoded.split()), validate=True)
+    if len(data) > 100000:
+        fail('Signing bundle exceeds the expected size.')
+    with zipfile.ZipFile(io.BytesIO(data)) as bundle:
+        for name in ['telegram-plus.p12', 'signing.env']:
+            if bundle.getinfo(name).file_size > 100000:
+                fail('Signing bundle entry exceeds the expected size.')
+        key_bytes = bundle.read('telegram-plus.p12')
+        config = bundle.read('signing.env').decode('utf-8')
+except (ValueError, KeyError, UnicodeError, zipfile.BadZipFile):
+    fail('Secret is not the expected Base64 signing backup ZIP.')
+
+values = {}
+for line in config.splitlines():
+    if '=' in line:
+        name, value = line.split('=', 1)
+        values[name] = value
+required = ['TELEGRAM_PLUS_STORE_PASSWORD', 'TELEGRAM_PLUS_KEY_PASSWORD', 'TELEGRAM_PLUS_KEY_ALIAS']
+if any(not values.get(name) for name in required):
+    fail('Signing bundle is missing required configuration.')
+for name in required[:2]:
+    value = values[name]
+    if not re.fullmatch(r'[A-Za-z0-9_-]{20,100}', value):
+        fail('Signing password format does not match the generated backup.')
+    print('::add-mask::' + value)
+if values['TELEGRAM_PLUS_KEY_ALIAS'] != 'telegram-plus':
+    fail('Signing alias does not match the expected key.')
+keytool = shutil.which('keytool')
+if not keytool:
+    fail('Java keytool is unavailable on this runner.')
+
+folder = Path(os.environ['RUNNER_TEMP']) / 'tgplus-signing'
+folder.mkdir(mode=0o700, exist_ok=True)
+key = Path(folder) / 'signing.p12'
+key.write_bytes(key_bytes)
+key.chmod(0o600)
+certificate = Path(folder) / 'certificate.der'
+process_env = os.environ.copy()
+process_env.pop('SIGNING_BUNDLE', None)
+process_env['TG_VALIDATION_STORE_PASSWORD'] = values['TELEGRAM_PLUS_STORE_PASSWORD']
+result = subprocess.run([
+    keytool, '-exportcert', '-keystore', str(key), '-storetype', 'PKCS12',
+    '-storepass:env', 'TG_VALIDATION_STORE_PASSWORD', '-alias', 'telegram-plus',
+    '-file', str(certificate)
+], env=process_env, capture_output=True, timeout=60)
+if result.returncode:
+    fail('Keystore could not be opened with the saved password and alias.')
+fingerprint = hashlib.sha256(certificate.read_bytes()).hexdigest()
+expected = 'a11bf05dd7c3d8ca457a5fa1204eea3fd0870d2c47853ffc200d3db7a0afad93'
+if fingerprint != expected:
+    fail('Signing certificate differs from the backed-up Telegram Plus key.')
+process_env['TG_VALIDATION_KEY_PASSWORD'] = values['TELEGRAM_PLUS_KEY_PASSWORD']
+private_check = subprocess.run([
+    keytool, '-certreq', '-keystore', str(key), '-storetype', 'PKCS12',
+    '-storepass:env', 'TG_VALIDATION_STORE_PASSWORD',
+    '-keypass:env', 'TG_VALIDATION_KEY_PASSWORD', '-alias', 'telegram-plus',
+    '-file', str(Path(folder) / 'request.csr')
+], env=process_env, capture_output=True, timeout=60)
+if private_check.returncode:
+    fail('The private signing key could not be used with the saved key password.')
+print('PASS: signing bundle, passwords, private key and certificate verified.')
+print('Public certificate SHA-256: ' + fingerprint)
+exports = {
+    'TELEGRAM_PLUS_KEYSTORE': str(key),
+    'TELEGRAM_PLUS_KEY_ALIAS': values['TELEGRAM_PLUS_KEY_ALIAS'],
+    'TELEGRAM_PLUS_STORE_PASSWORD': values['TELEGRAM_PLUS_STORE_PASSWORD'],
+    'TELEGRAM_PLUS_KEY_PASSWORD': values['TELEGRAM_PLUS_KEY_PASSWORD'],
+}
+with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as output:
+    for name, value in exports.items():
+        output.write(name + '=' + value + '\n')
+

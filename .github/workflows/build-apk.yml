@@ -1,0 +1,135 @@
+name: Build Telegram Plus APK
+
+on:
+  push:
+    branches: [telegram-plus]
+    paths:
+      - 'TMessagesProj/**'
+      - 'TMessagesProj_AppStandalone/**'
+      - 'TMessagesProj_Modules/**'
+      - 'build.gradle'
+      - 'settings.gradle'
+      - 'gradle.properties'
+      - '.gitmodules'
+      - 'tools/prepare_signing.py'
+      - '.github/workflows/build-apk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: telegram-plus-apk
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      TELEGRAM_PLUS_API_ID: ${{ secrets.TELEGRAM_PLUS_API_ID }}
+      TELEGRAM_PLUS_API_HASH: ${{ secrets.TELEGRAM_PLUS_API_HASH }}
+      TELEGRAM_PLUS_MAPS_API_KEY: ${{ secrets.TELEGRAM_PLUS_MAPS_API_KEY }}
+    steps:
+      - name: Check out source and pinned submodules
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Set up Java 17
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.13
+        uses: gradle/actions/setup-gradle@48b5f213c81028ace310571dc5ec0fbbca0b2947
+        with:
+          gradle-version: '8.13'
+          cache-disabled: true
+
+      - name: Install Android build dependencies
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ninja-build nasm yasm pkg-config autoconf automake libtool
+          sdkmanager "platforms;android-36" "platforms;android-35" "build-tools;36.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
+          printf 'sdk.dir=%s\n' "$ANDROID_HOME" > local.properties
+
+      - name: Run camera and formatting checks
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/tgplus-tests"
+          javac -d "$RUNNER_TEMP/tgplus-tests" \
+            TMessagesProj/src/main/java/org/telegram/messenger/camera/RoundCameraWarmup.java \
+            TMessagesProj/src/main/java/org/telegram/messenger/camera/RoundFpsSelector.java \
+            TMessagesProj/src/main/java/org/telegram/messenger/camera/RoundStreamSelector.java \
+            TMessagesProj/src/main/java/org/telegram/messenger/utils/FormattingMarkers.java \
+            tests/telegram-plus/*Test.java
+          for test in FormattingMarkersTest RoundCameraWarmupTest RoundFpsSelectorTest RoundStreamSelectorTest; do
+            java -cp "$RUNNER_TEMP/tgplus-tests" "$test"
+          done
+
+      - name: Restore and verify signing key privately
+        env:
+          SIGNING_BUNDLE: ${{ secrets.TELEGRAM_PLUS_SIGNING_BUNDLE_BASE64 }}
+        run: python3 tools/prepare_signing.py
+
+      - name: Explain API credential status
+        shell: bash
+        run: |
+          if [ -z "$TELEGRAM_PLUS_API_ID" ] || [ -z "$TELEGRAM_PLUS_API_HASH" ]; then
+            echo "::notice::Building a signed test APK without valid Telegram API credentials. Login is not configured."
+            echo "### Test APK: Telegram login credentials are not configured." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### Telegram API credentials supplied from repository secrets." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Compile standalone ARM64 APK
+        run: >-
+          gradle :TMessagesProj_AppStandalone:assembleAfatDebug
+          --no-daemon --no-parallel --max-workers=2
+          -PRELEASE_STORE_PASSWORD=unused
+          -PRELEASE_KEY_PASSWORD=unused
+          -PRELEASE_KEY_ALIAS=unused
+
+      - name: Verify APK signature and package
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import glob, os, re, subprocess
+          from pathlib import Path
+          files = glob.glob('TMessagesProj_AppStandalone/build/outputs/apk/afat/debug/*.apk')
+          if len(files) != 1:
+              raise SystemExit('Expected exactly one standalone APK.')
+          tools = Path(os.environ['ANDROID_HOME']) / 'build-tools/36.0.0'
+          verified = subprocess.run([str(tools/'apksigner'), 'verify', '--print-certs', files[0]], capture_output=True, text=True)
+          if verified.returncode:
+              raise SystemExit('APK signature verification failed.')
+          expected = 'a11bf05dd7c3d8ca457a5fa1204eea3fd0870d2c47853ffc200d3db7a0afad93'
+          if expected not in verified.stdout.lower():
+              raise SystemExit('APK signing certificate does not match the permanent key.')
+          package = subprocess.run([str(tools/'aapt2'), 'dump', 'badging', files[0]], capture_output=True, text=True, check=True)
+          if "package: name='org.patrick.tgplus.web'" not in package.stdout:
+              raise SystemExit('APK package is not the intended side-by-side application.')
+          target = Path('apk-artifact')
+          target.mkdir(exist_ok=True)
+          (target/'Telegram_Plus.apk').write_bytes(Path(files[0]).read_bytes())
+          print('APK signature and side-by-side package verified.')
+          PY
+
+      - name: Remove private signing material
+        if: always()
+        shell: bash
+        run: rm -rf "$RUNNER_TEMP/tgplus-signing"
+
+      - name: Upload signed APK
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Telegram-Plus-ARM64-${{ github.run_number }}
+          path: apk-artifact/Telegram_Plus.apk
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
