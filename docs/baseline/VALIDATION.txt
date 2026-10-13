@@ -1,0 +1,36 @@
+Build: assembleAfatDebug SUCCESSFUL
+Upstream version: 12.10.6
+Application ID: org.patrick.roundcamera.web
+Minimum SDK: 23; target SDK: 36
+Native ABI: arm64-v8a only
+Signature: apksigner verifies v1 and v2; same certificate as previous test APK
+Alignment: zipalign -c -P 16 4 passed
+Java compilation: passed for standard and experimental recorder paths
+Compiled setting checked: experimental camera implementation defaults to false; saved user preference respected
+FPS and stream unit checks: passed (12 + 10)
+Patch whitespace and reverse applicability: passed
+Startup source review: opening and preview fade removed from both adapters; loading shimmer removed; host opening transition disabled; first live preview independent of recording readiness; front camera and at least 2 Mbps on both paths
+Supported stabilization: OIS preferred, EIS when OIS is unavailable; synchronous failure retries baseline
+Hardware startup, stabilization, camera switching, pause/resume, image quality, login and delivery: not tested
+Firebase push: not configured
+Touch-down warmup resource ownership checks: passed (prepare once, cancel, repeated cancel, adoption, next gesture, null preparation retry)
+Source review: preparation only on video-button touch-down with existing permissions; release cancels unadopted camera; pause/destroy cancel pending recording; 2-second timeout; no microphone/encoder during preparation
+Camera flips: memory-only frozen frame, stale-renderer guards and first timestamped-frame reveal; 3D turn removed on both recorder paths
+Warmup applies to standard Camera2 recorder; Camera1 and explicitly enabled experimental recorder keep normal startup
+Encoded switch transitions: removed standard 200 ms alpha blend; experimental crossfade/unblur durations zero with zero-duration arithmetic guard; waiting frame has no synthetic blur
+First-frame presentation: standard cover waits for matching TextureView surface update and rendered generation; stale encoder camera IDs rejected
+Rear-camera cadence change: standard Camera2 round sessions prefer supported fixed 30 FPS rather than variable 15–30 FPS; closest advertised fallback retained; non-round 30–60 preference unchanged
+FPS checks cover fixed-range ordering, variable-only fallback, malformed ranges, absent ranges and non-round 60 FPS preference
+Recorder timing source review: no intentional slow-motion multiplier found; timestamps still follow capture intervals and existing switch/pause continuity
+Actual preview/capture FPS and playback duration on OPPO: unmeasured; fixed-rate request may reduce low-light brightness or increase noise
+App label verified by aapt2: Telegram Plus for every bundled locale; package unchanged
+Formatting serialization: 12 checks passed for bold, underline, italic/bold combination, nesting, partial spans, strikethrough, plain literal markers, emoji, multiline text, empty input and invalid lengths
+Clipboard behavior: converted copies use plain text; supplied HTML/styled text converted on normal composer paste; plain text and explicit paste-as-plain remain unchanged
+Clipboard integration on physical Android device: not tested
+Launcher asset: approved generated paper-plane/plus logo, rasterized for mdpi/hdpi/xhdpi/xxhdpi/xxxhdpi; shared drawable used by application and launcher aliases
+Original logo source bundled as Telegram_Plus_Logo.png; no camera or clipboard source changes for this update
+APK logo density entries and dimensions: verified (108/162/216/324/432 pixels)
+Camera2 initial session controls: Android 9+ SessionConfiguration sets selected advertised FPS and supported stabilization before session creation when FPS is an available session key
+Mode initialization: round/recording flags set in round-session constructor before callbacks; legacy path retained for older APIs, missing keys or synchronous rejection
+Startup cadence after rear-camera flip: not measured on hardware; this update does not add frame-hiding delay or continuously open a second camera
+APK SHA-256: 3593d699b8e61602e1a7d232e20c926b5d5c5672ee16bd3308fe15e17941a011

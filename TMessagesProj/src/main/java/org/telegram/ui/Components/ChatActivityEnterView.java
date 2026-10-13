@@ -324,6 +324,10 @@ public class ChatActivityEnterView extends FrameLayout implements
 
         default void didPressSuggestionButton() {}
 
+        default void prepareRoundCamera() {}
+
+        default void cancelRoundCameraPreparation() {}
+
         void needStartRecordVideo(int state, boolean notify, int scheduleDate, int scheduleRepeatPeriod, int ttl, long effectId, long stars);
 
         void toggleVideoRecordingPause();
@@ -882,7 +886,7 @@ public class ChatActivityEnterView extends FrameLayout implements
     private Runnable onFinishInitCameraRunnable = new Runnable() {
         @Override
         public void run() {
-            if (delegate != null) {
+            if (delegate != null && !isPaused && !destroyed) {
                 delegate.needStartRecordVideo(0, true, 0, 0, 0, 0, 0);
             }
         }
@@ -893,7 +897,8 @@ public class ChatActivityEnterView extends FrameLayout implements
     private Runnable recordAudioVideoRunnable = new Runnable() {
         @Override
         public void run() {
-            if (delegate == null || parentActivity == null) {
+            if (delegate == null || parentActivity == null || isPaused || destroyed) {
+                if (delegate != null) delegate.cancelRoundCameraPreparation();
                 return;
             }
             delegate.onPreAudioVideoRecord();
@@ -3057,6 +3062,11 @@ public class ChatActivityEnterView extends FrameLayout implements
                     }
 
                     if (hasRecordVideo) {
+                        if (isInVideoMode() && delegate != null && parentActivity != null && !isPaused
+                                && parentActivity.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+                                && parentActivity.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                            delegate.prepareRoundCamera();
+                        }
                         calledRecordRunnable = false;
                         recordAudioVideoRunnableStarted = true;
                         AndroidUtilities.runOnUIThread(recordAudioVideoRunnable, 150);
@@ -3065,6 +3075,7 @@ public class ChatActivityEnterView extends FrameLayout implements
                     }
                     return true;
                 } else if (motionEvent.getAction() == MotionEvent.ACTION_UP || motionEvent.getAction() == MotionEvent.ACTION_CANCEL) {
+                    if (delegate != null) delegate.cancelRoundCameraPreparation();
                     if (motionEvent.getAction() == MotionEvent.ACTION_CANCEL && recordingAudioVideo) {
                         if (slideToCancelProgress < 0.7f) {
                             if (hasRecordVideo && isInVideoMode()) {
@@ -6493,6 +6504,10 @@ public class ChatActivityEnterView extends FrameLayout implements
     }
 
     public void onDestroy() {
+        if (delegate != null) delegate.cancelRoundCameraPreparation();
+        AndroidUtilities.cancelRunOnUIThread(recordAudioVideoRunnable);
+        CameraController.getInstance().cancelOnInitRunnable(onFinishInitCameraRunnable);
+        recordAudioVideoRunnableStarted = false;
         if (audioTimelineView != null) {
             audioTimelineView.destroy();
         }
@@ -6615,6 +6630,10 @@ public class ChatActivityEnterView extends FrameLayout implements
 
     public void onPause() {
         isPaused = true;
+        if (delegate != null) delegate.cancelRoundCameraPreparation();
+        AndroidUtilities.cancelRunOnUIThread(recordAudioVideoRunnable);
+        CameraController.getInstance().cancelOnInitRunnable(onFinishInitCameraRunnable);
+        recordAudioVideoRunnableStarted = false;
         if (senderSelectPopupWindow != null) {
             senderSelectPopupWindow.setPauseNotifications(false);
             senderSelectPopupWindow.dismiss();

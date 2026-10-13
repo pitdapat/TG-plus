@@ -178,9 +178,7 @@ public final class InstantCameraView2 extends InstantCameraViewBase {
                 AndroidUtilities.rectTmp.set(0, 0, getWidth(), getHeight());
                 canvas.drawRoundRect(AndroidUtilities.rectTmp, radius, radius, placeholderDimPaint);
                 AndroidUtilities.rectTmp.inset(dp(1), dp(1));
-                flickerDrawable.setParentWidth(getWidth());
-                flickerDrawable.draw(canvas, AndroidUtilities.rectTmp, radius, null);
-                invalidate();
+                // Static cover only until the first live frame; no loading shimmer.
             }
         };
         textureOverlayView.setOutlineProvider(new ViewOutlineProvider() {
@@ -371,9 +369,9 @@ public final class InstantCameraView2 extends InstantCameraViewBase {
         activeOutputResolution = SharedSettings.roundVideoOutputResolution.get();
         session = new RoundVideoSession.Builder(getContext(), textureView)
                 .setOutputDirectory(new File(ApplicationLoader.getFilesDirFixed(), "cache"))
-                .setInitialFacing(SharedSettings.roundVideoLastCamera.get())
+                .setInitialFacing(RoundVideoSession.CameraFacing.FRONT)
                 .setOutputResolution(activeOutputResolution)
-                .setVideoBitrate(SharedSettings.roundVideoVideoBitrate.get())
+                .setVideoBitrate(Math.max(2_000_000, SharedSettings.roundVideoVideoBitrate.get()))
                 .setCameraResolution(SharedSettings.roundVideoCameraResolution.get())
                 .setFrameRate(SharedSettings.roundVideoFrameRate.get())
                 .setCompositionEnabled(SharedSettings.roundVideoComposition.get())
@@ -426,7 +424,7 @@ public final class InstantCameraView2 extends InstantCameraViewBase {
                 ObjectAnimator.ofFloat(muteImageView, View.ALPHA, muted && open ? 1f : 0f),
                 translationYAnimator
         );
-        visibilityAnimator.setDuration(180L);
+        visibilityAnimator.setDuration(open ? 0L : 180L);
         visibilityAnimator.setInterpolator(new DecelerateInterpolator());
         if (!open) {
             visibilityAnimator.addListener(new AnimatorListenerAdapter() {
@@ -705,15 +703,13 @@ public final class InstantCameraView2 extends InstantCameraViewBase {
         public void onCameraSwitchStarted(@NonNull RoundVideoSession.CameraFacing facing) {
             showCameraSwitchPlaceholder();
             previewContainer.animate().cancel();
-            previewContainer.setCameraDistance(previewContainer.getMeasuredHeight() * 8f);
-            previewContainer.animate().rotationY(90f).setDuration(120L).start();
+            previewContainer.setRotationY(0f);
         }
 
         @Override
         public void onCameraSwitchCompleted(@NonNull RoundVideoSession.CameraFacing facing) {
             previewContainer.animate().cancel();
-            previewContainer.setRotationY(-90f);
-            previewContainer.animate().rotationY(0f).setDuration(140L).start();
+            previewContainer.setRotationY(0f);
         }
 
         @Override
@@ -744,6 +740,11 @@ public final class InstantCameraView2 extends InstantCameraViewBase {
 
         @Override
         public void onPreviewFirstFrame() {
+            hideInitialPlaceholder();
+        }
+
+        @Override
+        public void onCameraPreviewFirstFrame() {
             hideInitialPlaceholder();
         }
 
@@ -1096,17 +1097,13 @@ public final class InstantCameraView2 extends InstantCameraViewBase {
         drawInitialPlaceholder = false;
         textureOverlayView.invalidate();
         textureOverlayView.animate().cancel();
-        textureOverlayView.animate()
-                .alpha(0f)
-                .setDuration(120L)
-                .setInterpolator(new DecelerateInterpolator())
-                .start();
+        textureOverlayView.setAlpha(0f);
     }
 
     private void showCameraSwitchPlaceholder() {
         saveLastCameraBitmap(false);
-        if (lastBitmap == null) return;
-        textureOverlayView.setImageBitmap(lastBitmap);
+        if (lastBitmap != null) textureOverlayView.setImageBitmap(lastBitmap);
+        else textureOverlayView.setImageResource(R.drawable.icplaceholder);
         switchPlaceholderVisible = true;
         textureOverlayView.animate().cancel();
         textureOverlayView.setAlpha(1f);
@@ -1116,11 +1113,7 @@ public final class InstantCameraView2 extends InstantCameraViewBase {
         if (!switchPlaceholderVisible) return;
         switchPlaceholderVisible = false;
         textureOverlayView.animate().cancel();
-        textureOverlayView.animate()
-                .alpha(0f)
-                .setDuration(100L)
-                .setInterpolator(new DecelerateInterpolator())
-                .start();
+        textureOverlayView.setAlpha(0f);
     }
 
     private void saveLastCameraBitmap(boolean persist) {

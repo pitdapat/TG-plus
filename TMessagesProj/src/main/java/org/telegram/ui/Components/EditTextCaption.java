@@ -971,7 +971,7 @@ public class EditTextCaption extends EditTextBoldCursor implements FloatingToolb
             if (clipData != null && clipData.getItemCount() == 1 && clipData.getDescription().hasMimeType("text/html")) {
                 try {
                     String html = clipData.getItemAt(0).getHtmlText();
-                    SpannableStringBuilder pasted = new SpannableStringBuilder(CopyUtilities.fromHTML(html));
+                    SpannableStringBuilder pasted = new SpannableStringBuilder(org.telegram.messenger.utils.ClipboardFormatting.withMarkers(CopyUtilities.fromHTML(html)));
                     Emoji.replaceEmoji(pasted, getPaint().getFontMetricsInt(), false, null);
                     AnimatedEmojiSpan[] spans = pasted.getSpans(0, pasted.length(), AnimatedEmojiSpan.class);
                     if (spans != null) {
@@ -996,6 +996,17 @@ public class EditTextCaption extends EditTextBoldCursor implements FloatingToolb
                     return true;
                 } catch (Exception e) {
                     FileLog.e(e);
+                }
+            }
+            if (clipData != null && clipData.getItemCount() == 1) {
+                CharSequence original = clipData.getItemAt(0).getText();
+                CharSequence marked = org.telegram.messenger.utils.ClipboardFormatting.withMarkers(original);
+                if (original != null && marked != original) {
+                    int start = Math.max(0, Math.min(getSelectionStart(), getSelectionEnd()));
+                    int end = Math.max(start, Math.max(getSelectionStart(), getSelectionEnd()));
+                    getText().replace(start, end, marked);
+                    setSelection(start + marked.length());
+                    return true;
                 }
             }
         } else if (id == android.R.id.copy) {

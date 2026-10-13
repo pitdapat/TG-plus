@@ -14,3 +14,10 @@ TMessagesProj_AppHockeyApp/afat/
 TMessagesProj_AppStandalone/afat/
 TMessagesProj_AppHuawei/afat/
 TMessagesProj/jni/ffmpeg/build_android
+
+# Personal signing material is backed up separately, never committed.
+*.keystore
+*.jks
+*.p12
+.env.signing
+signing.properties

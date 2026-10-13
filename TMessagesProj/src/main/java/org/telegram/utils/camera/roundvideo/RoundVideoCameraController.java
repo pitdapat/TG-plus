@@ -45,6 +45,8 @@ final class RoundVideoCameraController {
 
         void onCameraSwitchFirstFrame();
 
+        void onCameraPreviewFirstFrame();
+
         void onRecordingStopped();
 
         void onError(@NonNull Exception error);
@@ -107,6 +109,8 @@ final class RoundVideoCameraController {
     private Handler cameraHandler;
     private String cameraId;
     private CameraCharacteristics characteristics;
+    private boolean initialPreviewFrameDelivered;
+    private boolean stabilizationControlsRejected;
     private Size previewSize;
     private volatile Size recordingSize;
     private volatile int sourceCropSize;
@@ -378,6 +382,10 @@ final class RoundVideoCameraController {
                     }
                     long now = SystemClock.elapsedRealtimeNanos();
                     long timestampNs = surfaceTexture.getTimestamp();
+                    if (active && timestampNs > 0 && !initialPreviewFrameDelivered) {
+                        initialPreviewFrameDelivered = true;
+                        callback.onCameraPreviewFirstFrame();
+                    }
                     if (previewFpsStartedNs == 0L) {
                         previewFpsStartedNs = now;
                         diagnostics.log("preview frame delivery started: thread="
@@ -780,6 +788,7 @@ final class RoundVideoCameraController {
                 CaptureRequest.CONTROL_CAPTURE_INTENT,
                 CaptureRequest.CONTROL_CAPTURE_INTENT_VIDEO_RECORD
         );
+        stabilizationControlsRejected = false;
         setContinuousVideoAf(builder);
         setPreferredFps(builder, logConfiguration);
         applyZoom(builder);
@@ -794,8 +803,21 @@ final class RoundVideoCameraController {
         CameraCaptureSession session = captureSession;
         CaptureRequest.Builder builder = repeatingBuilder;
         if (session == null || builder == null) return;
-        CaptureRequest request = builder.build();
-        session.setRepeatingRequest(request, captureCallback, cameraHandler);
+        CaptureRequest baseline = builder.build();
+        if (!stabilizationControlsRejected && characteristics != null) {
+            try {
+                org.telegram.messenger.camera.RoundCameraPolicy.applySupportedControls(builder, characteristics);
+                session.setRepeatingRequest(builder.build(), captureCallback, cameraHandler);
+                return;
+            } catch (IllegalArgumentException | CameraAccessException rejected) {
+                stabilizationControlsRejected = true;
+                builder.set(CaptureRequest.CONTROL_AF_MODE, baseline.get(CaptureRequest.CONTROL_AF_MODE));
+                builder.set(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE, baseline.get(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE));
+                builder.set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, baseline.get(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE));
+                diagnostics.log("stabilization controls rejected; retrying baseline: " + rejected);
+            }
+        }
+        session.setRepeatingRequest(baseline, captureCallback, cameraHandler);
     }
 
     private final CameraCaptureSession.CaptureCallback captureCallback =

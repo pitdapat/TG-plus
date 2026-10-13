@@ -156,6 +156,9 @@ public final class RoundVideoSession {
         /** Called when recorded-video playback renders its first frame. */
         default void onPreviewFirstFrame() {}
 
+        /** First live camera preview frame, independent of encoder readiness. */
+        default void onCameraPreviewFirstFrame() {}
+
         /** Called when recorded-video playback starts or pauses. */
         default void onPreviewPlaybackChanged(boolean playing) {}
 
@@ -905,6 +908,13 @@ public final class RoundVideoSession {
                 @Override
                 public void onCameraSwitchFirstFrame() {
                     mainHandler.post(listener::onCameraSwitchFirstFrame);
+                }
+
+                @Override
+                public void onCameraPreviewFirstFrame() {
+                    mainHandler.post(() -> {
+                        if (state != State.RELEASED && state != State.ERROR) listener.onCameraPreviewFirstFrame();
+                    });
                 }
 
                 @Override

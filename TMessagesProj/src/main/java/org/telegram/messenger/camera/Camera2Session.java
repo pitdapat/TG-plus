@@ -15,6 +15,8 @@ import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.CaptureResult;
 import android.hardware.camera2.TotalCaptureResult;
 import android.hardware.camera2.params.StreamConfigurationMap;
+import android.hardware.camera2.params.OutputConfiguration;
+import android.hardware.camera2.params.SessionConfiguration;
 import android.media.Image;
 import android.media.ImageReader;
 import android.os.Build;
@@ -50,9 +52,10 @@ import java.util.List;
 @TargetApi(Build.VERSION_CODES.LOLLIPOP)
 public class Camera2Session {
 
-    private boolean isError;
+    private volatile boolean isError;
     private boolean isSuccess;
-    private boolean isClosed;
+    private volatile boolean isClosed;
+    private volatile boolean cameraOpening = true;
 
     private final CameraManager cameraManager;
     private final boolean isFront;
@@ -73,6 +76,9 @@ public class Camera2Session {
     private Rect sensorSize;
     private float maxZoom = 1f;
     private float currentZoom = 1f;
+    private float minZoom = 1f;
+    private float defaultZoom = 1f;
+    private boolean useZoomRatio;
 
     private final Size previewSize;
 
@@ -81,6 +87,14 @@ public class Camera2Session {
     private long lastTime;
 
     public static Camera2Session create(boolean front, int viewWidth, int viewHeight) {
+        return create(front, viewWidth, viewHeight, false);
+    }
+
+    public static Camera2Session createRound(boolean front, int viewWidth, int viewHeight) {
+        return create(front, viewWidth, viewHeight, true);
+    }
+
+    private static Camera2Session create(boolean front, int viewWidth, int viewHeight, boolean videoOnly) {
         final Context context = ApplicationLoader.applicationContext;
         final CameraManager cameraManager = (CameraManager) context.getSystemService(Context.CAMERA_SERVICE);
 
@@ -104,7 +118,23 @@ public class Camera2Session {
                 }
                 if (bestAspectRatio <= 0 || Math.abs((float) viewWidth / viewHeight - bestAspectRatio) > Math.abs((float) viewWidth / viewHeight - cameraAspectRatio)) {
                     if (confMap != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        Size size = chooseOptimalSize(confMap.getOutputSizes(SurfaceTexture.class), viewWidth, viewHeight, false);
+                        Size[] choices = confMap.getOutputSizes(SurfaceTexture.class);
+                        Size size = null;
+                        if (videoOnly && choices != null) {
+                            Rect activeArray = characteristics.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE);
+                            float sensorAspect = activeArray == null ? cameraAspectRatio
+                                    : (float) activeArray.width() / activeArray.height();
+                            int[][] dimensions = new int[choices.length][2];
+                            for (int a = 0; a < choices.length; a++) {
+                                dimensions[a][0] = choices[a].getWidth();
+                                dimensions[a][1] = choices[a].getHeight();
+                            }
+                            int selected = RoundStreamSelector.choose(dimensions, Math.min(viewWidth, viewHeight), sensorAspect);
+                            if (selected >= 0) size = choices[selected];
+                        }
+                        if (size == null && choices != null && choices.length > 0) {
+                            size = chooseOptimalSize(choices, viewWidth, viewHeight, false);
+                        }
                         if (size != null) {
                             bestAspectRatio = cameraAspectRatio;
                             cameraId = id;
@@ -122,10 +152,13 @@ public class Camera2Session {
         if (cameraId == null || bestSize == null) {
             return null;
         }
-        return new Camera2Session(context, front, cameraId, bestSize);
+        return new Camera2Session(context, front, cameraId, bestSize, videoOnly);
     }
 
-    private Camera2Session(Context context, boolean isFront, String cameraId, Size size) {
+    private Camera2Session(Context context, boolean isFront, String cameraId, Size size, boolean videoOnly) {
+        // Establish recorder mode before any asynchronous camera/session callbacks.
+        roundVideoMode = videoOnly;
+        recordingVideo = videoOnly;
         thread = new HandlerThread("tg_camera2");
         thread.start();
         handler = new Handler(thread.getLooper());
@@ -133,6 +166,12 @@ public class Camera2Session {
         cameraStateCallback = new CameraDevice.StateCallback() {
             @Override
             public void onOpened(@NonNull CameraDevice camera) {
+                cameraOpening = false;
+                if (isClosed) {
+                    camera.close();
+                    thread.quitSafely();
+                    return;
+                }
                 Camera2Session.this.cameraDevice = camera;
                 Camera2Session.this.lastTime = System.currentTimeMillis();
                 FileLog.d("Camera2Session camera #" + cameraId + " opened");
@@ -141,12 +180,24 @@ public class Camera2Session {
 
             @Override
             public void onDisconnected(@NonNull CameraDevice camera) {
+                cameraOpening = false;
+                if (isClosed) {
+                    camera.close();
+                    thread.quitSafely();
+                    return;
+                }
                 Camera2Session.this.cameraDevice = camera;
                 FileLog.d("Camera2Session camera #" + cameraId + " disconnected");
             }
 
             @Override
             public void onError(@NonNull CameraDevice camera, int error) {
+                cameraOpening = false;
+                if (isClosed) {
+                    camera.close();
+                    thread.quitSafely();
+                    return;
+                }
                 Camera2Session.this.cameraDevice = camera;
                 FileLog.e("Camera2Session camera #" + cameraId + " received " + error + " error");
                 AndroidUtilities.runOnUIThread(() -> {
@@ -158,6 +209,10 @@ public class Camera2Session {
         captureStateCallback = new CameraCaptureSession.StateCallback() {
             @Override
             public void onConfigured(@NonNull CameraCaptureSession session) {
+                if (isClosed) {
+                    session.close();
+                    return;
+                }
                 captureSession = session;
                 FileLog.e("Camera2Session camera #" + cameraId + " capture session configured");
                 Camera2Session.this.lastTime = System.currentTimeMillis();
@@ -189,20 +244,52 @@ public class Camera2Session {
         this.cameraId = cameraId;
         this.previewSize = size;
         this.lastTime = System.currentTimeMillis();
-        this.imageReader = ImageReader.newInstance(size.getWidth(), size.getHeight(), ImageFormat.JPEG, 1);
+        // Round video only needs the SurfaceTexture stream; avoid a JPEG stream
+        // allocation and its additional camera-session configuration.
+        if (!videoOnly) {
+            this.imageReader = ImageReader.newInstance(size.getWidth(), size.getHeight(), ImageFormat.JPEG, 1);
+        }
         cameraManager = (CameraManager) context.getSystemService(Context.CAMERA_SERVICE);
         try {
             cameraCharacteristics = cameraManager.getCameraCharacteristics(cameraId);
             sensorSize = cameraCharacteristics.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE);
             final Float value = cameraCharacteristics.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM);
             maxZoom = (value == null || value < 1f) ? 1f : value;
+            if (videoOnly && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                Range<Float> zoomRange = cameraCharacteristics.get(CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE);
+                if (zoomRange != null && zoomRange.getLower() > 0f
+                        && zoomRange.getLower() <= 1f && zoomRange.getUpper() >= 1f
+                        && cameraCharacteristics.getAvailableCaptureRequestKeys() != null
+                        && cameraCharacteristics.getAvailableCaptureRequestKeys().contains(CaptureRequest.CONTROL_ZOOM_RATIO)) {
+                    useZoomRatio = true;
+                    minZoom = zoomRange.getLower();
+                    maxZoom = zoomRange.getUpper();
+                    defaultZoom = Math.max(minZoom, 0.8f);
+                    currentZoom = defaultZoom;
+                }
+            }
+            FileLog.d("Round camera #" + cameraId + " stream=" + size + " minZoom=" + minZoom + " defaultZoom=" + defaultZoom);
             cameraManager.openCamera(cameraId, cameraStateCallback, handler);
         } catch (Exception e) {
+            cameraOpening = false;
             FileLog.e(e);
             AndroidUtilities.runOnUIThread(() -> {
                 isError = true;
             });
         }
+    }
+
+    /** Keep the callback thread alive if cancellation races an asynchronous open. */
+    public void cancelPrewarm() {
+        isClosed = true;
+        handler.post(() -> {
+            if (!cameraOpening || cameraDevice != null) destroy(true);
+            // Otherwise onOpened/onError closes the arriving device and quits.
+        });
+    }
+
+    public boolean canReusePrewarm() {
+        return !isClosed && !isError;
     }
 
     private Runnable doneCallback;
@@ -217,6 +304,7 @@ public class Camera2Session {
 
     public void open(SurfaceTexture surfaceTexture) {
         handler.post(() -> {
+            if (isClosed) return;
             this.surfaceTexture = surfaceTexture;
             if (surfaceTexture != null) {
                 surfaceTexture.setDefaultBufferSize(getPreviewWidth(), getPreviewHeight());
@@ -236,13 +324,43 @@ public class Camera2Session {
         try {
             ArrayList<Surface> surfaces = new ArrayList<>();
             surfaces.add(surface);
-            surfaces.add(imageReader.getSurface());
-            cameraDevice.createCaptureSession(surfaces, captureStateCallback, null);
+            if (imageReader != null) surfaces.add(imageReader.getSurface());
+            if (Build.VERSION.SDK_INT < 28 || !roundVideoMode || !createSeededRoundSession(surfaces)) {
+                cameraDevice.createCaptureSession(surfaces, captureStateCallback, handler);
+            }
         } catch (Exception e) {
             FileLog.e(e);
             AndroidUtilities.runOnUIThread(() -> {
                 isError = true;
             });
+        }
+    }
+
+    /** Seed advertised session controls before the first repeating request. */
+    @RequiresApi(28)
+    private boolean createSeededRoundSession(ArrayList<Surface> surfaces) {
+        if (Build.VERSION.SDK_INT < 28 || !roundVideoMode) return false;
+        List<CaptureRequest.Key<?>> keys = cameraCharacteristics.getAvailableSessionKeys();
+        Range<Integer> fps = RoundCameraPolicy.chooseFps(cameraCharacteristics, true);
+        if (keys == null || fps == null || !keys.contains(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE)) {
+            return false;
+        }
+        try {
+            CaptureRequest.Builder initial = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
+            initial.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, fps);
+            // SessionConfiguration ignores controls not advertised as session keys.
+            RoundCameraPolicy.applySupportedControls(initial, cameraCharacteristics);
+            ArrayList<OutputConfiguration> outputs = new ArrayList<>();
+            for (Surface output : surfaces) outputs.add(new OutputConfiguration(output));
+            SessionConfiguration config = new SessionConfiguration(
+                    SessionConfiguration.SESSION_REGULAR, outputs, handler::post, captureStateCallback);
+            config.setSessionParameters(initial.build());
+            cameraDevice.createCaptureSession(config);
+            FileLog.d("Round camera #" + cameraId + " initial session FPS=" + fps);
+            return true;
+        } catch (Exception rejected) {
+            FileLog.e("Round camera initial session parameters rejected; using legacy setup", rejected);
+            return false;
         }
     }
 
@@ -345,14 +463,10 @@ public class Camera2Session {
         if (!isInitiated()) return;
         if (captureRequestBuilder == null || cameraDevice == null || sensorSize == null) return;
 
-        currentZoom = Utilities.clamp(value, maxZoom, 1f);
+        currentZoom = Utilities.clamp(value, maxZoom, minZoom);
         updateCaptureRequest();
 
-        try {
-            captureSession.setRepeatingRequest(captureRequestBuilder.build(), null, handler);
-        } catch (Exception e) {
-            FileLog.e(e);
-        }
+
     }
 
     private boolean flashing;
@@ -375,8 +489,11 @@ public class Camera2Session {
     }
 
     public float getMinZoom() {
-        // TODO: support wide zoom camera switching
-        return 1f;
+        return minZoom;
+    }
+
+    public float getDefaultZoom() {
+        return defaultZoom;
     }
 
     public int getPreviewWidth() {
@@ -444,7 +561,12 @@ public class Camera2Session {
         }
     }
 
-    private boolean recordingVideo;
+    private volatile boolean roundVideoMode;
+    public void setRoundVideoMode(boolean enabled) {
+        roundVideoMode = enabled;
+    }
+
+    private volatile boolean recordingVideo;
     public void setRecordingVideo(boolean recording) {
         if (recordingVideo != recording) {
             recordingVideo = recording;
@@ -490,11 +612,14 @@ public class Camera2Session {
             captureRequestBuilder.set(CaptureRequest.FLASH_MODE, flashing ? (recordingVideo ? CaptureRequest.FLASH_MODE_TORCH : CaptureRequest.FLASH_MODE_SINGLE) : CaptureRequest.FLASH_MODE_OFF);
 
             if (recordingVideo) {
-                captureRequestBuilder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, new Range<Integer>(30, 60));
+                Range<Integer> supportedFps = RoundCameraPolicy.chooseFps(cameraCharacteristics, roundVideoMode);
+                if (supportedFps != null) {
+                    captureRequestBuilder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, supportedFps);
+                }
                 captureRequestBuilder.set(CaptureRequest.CONTROL_CAPTURE_INTENT, CaptureRequest.CONTROL_CAPTURE_INTENT_VIDEO_RECORD);
             }
 
-            if (sensorSize != null && Math.abs(currentZoom - 1f) >= 0.01f) {
+            if (!useZoomRatio && sensorSize != null && Math.abs(currentZoom - 1f) >= 0.01f) {
                 final int centerX = sensorSize.width() / 2;
                 final int centerY = sensorSize.height() / 2;
                 final int deltaX = (int) ((0.5f * sensorSize.width()) / currentZoom);
@@ -509,14 +634,34 @@ public class Camera2Session {
             }
 
             captureRequestBuilder.addTarget(surface);
-            captureSession.setRepeatingRequest(captureRequestBuilder.build(), null, handler);
+            if (recordingVideo && roundVideoMode) {
+                final CaptureRequest baseline = captureRequestBuilder.build();
+                try {
+                    if (useZoomRatio && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        captureRequestBuilder.set(CaptureRequest.CONTROL_ZOOM_RATIO, currentZoom);
+                    }
+                    RoundCameraPolicy.applySupportedControls(captureRequestBuilder, cameraCharacteristics);
+                    captureSession.setRepeatingRequest(captureRequestBuilder.build(), null, handler);
+                } catch (IllegalArgumentException | android.hardware.camera2.CameraAccessException rejected) {
+                    FileLog.e("Round-camera controls rejected; retrying baseline", rejected);
+                    if (useZoomRatio) {
+                        useZoomRatio = false;
+                        minZoom = defaultZoom = currentZoom = 1f;
+                        final Float fallbackMax = cameraCharacteristics.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM);
+                        maxZoom = fallbackMax == null ? 1f : Math.max(1f, fallbackMax);
+                    }
+                    captureSession.setRepeatingRequest(baseline, null, handler);
+                }
+            } else {
+                captureSession.setRepeatingRequest(captureRequestBuilder.build(), null, handler);
+            }
         } catch (Exception e) {
             FileLog.e("Camera2Sessions setRepeatingRequest error in updateCaptureRequest", e);
         }
     }
 
     public boolean takePicture(final File file, Utilities.Callback<Integer> whenDone) {
-        if (cameraDevice == null || captureSession == null) return false;
+        if (cameraDevice == null || captureSession == null || imageReader == null) return false;
         try {
             CaptureRequest.Builder captureRequestBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
             final int orientation = getJpegOrientation();

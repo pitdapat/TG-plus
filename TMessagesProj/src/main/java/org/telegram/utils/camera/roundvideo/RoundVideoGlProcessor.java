@@ -582,7 +582,7 @@ final class RoundVideoGlProcessor {
                     switchState = SWITCH_UNBLUR_NEW;
                     mix = 1f;
                     long unblurElapsed = elapsed - switchCrossfadeDurationNs;
-                    newBlur = 1f - smoothStep(
+                    newBlur = switchUnblurDurationNs == 0 ? 0f : 1f - smoothStep(
                             unblurElapsed / (float) switchUnblurDurationNs
                     );
                 }
@@ -693,16 +693,7 @@ final class RoundVideoGlProcessor {
     }
 
     private float getSwitchOldBlurRadiusPx(long nowNs) {
-        long elapsedNs = Math.max(0L, nowNs - cameraSwitchStartNs);
-        long expectedNs = getExpectedSwitchWaitNs();
-        float targetRadius = overlayRenderer.getSwitchTargetBlurRadiusPx();
-        if (elapsedNs <= expectedNs) {
-            return targetRadius * easeOutQuart(elapsedNs / (float) expectedNs);
-        }
-        float overdue = (elapsedNs - expectedNs) / (float) expectedNs;
-        return targetRadius * (float) Math.sqrt(
-                1f + SWITCH_OVERDUE_BLUR_GROWTH * Math.log1p(overdue)
-        );
+        return 0f;
     }
 
     private long getExpectedSwitchWaitNs() {
@@ -711,14 +702,9 @@ final class RoundVideoGlProcessor {
 
     private void configureSwitchTiming(int expectedWaitMs) {
         switchExpectedWaitMs = expectedWaitMs;
-        int revealMs = clamp(
-                SWITCH_MAX_REVEAL_MS - Math.max(0, expectedWaitMs - 400) * 3 / 20,
-                SWITCH_MIN_REVEAL_MS,
-                SWITCH_MAX_REVEAL_MS
-        );
-        int crossfadeMs = revealMs * 45 / 100;
-        switchCrossfadeDurationNs = crossfadeMs * 1_000_000L;
-        switchUnblurDurationNs = (revealMs - crossfadeMs) * 1_000_000L;
+        // Preserve the held frame during replacement, then make a clean cut.
+        switchCrossfadeDurationNs = 0;
+        switchUnblurDurationNs = 0;
     }
 
     private static int clamp(int value, int min, int max) {

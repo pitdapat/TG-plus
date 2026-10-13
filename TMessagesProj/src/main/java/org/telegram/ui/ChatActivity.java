@@ -2399,6 +2399,17 @@ public class ChatActivity extends BaseFragment implements
         }
 
         @Override
+        public void prepareRoundCamera() {
+            checkInstantCameraView();
+            if (instantCameraView != null) instantCameraView.prepareCameraForHold();
+        }
+
+        @Override
+        public void cancelRoundCameraPreparation() {
+            if (instantCameraView != null) instantCameraView.cancelCameraPreparation();
+        }
+
+        @Override
         public void needStartRecordVideo(int state, boolean notify, int scheduleDate, int scheduleRepeatPeriod, int ttl, long effectId, long stars) {
             checkInstantCameraView();
             if (instantCameraView != null) {
@@ -10715,7 +10726,7 @@ public class ChatActivity extends BaseFragment implements
                 true
         );
         instantCameraView.setAnimationCallback((open, fromPaused) ->
-                animatorRoundMessageCameraVisibility.setValue(open, true));
+                animatorRoundMessageCameraVisibility.setValue(open, !open));
         instantCameraView.setTrimCallback((start, end) -> {
             if (chatActivityEnterView != null) {
                 chatActivityEnterView.setVideoTimelineTrim(start, end);

@@ -9,7 +9,7 @@ public final class SharedSettings {
         BooleanSetting.of("experimental_settings_allowed", BuildConfig.DEBUG_VERSION);
 
     public static final BooleanSetting roundVideoCamera2Enabled =
-        BooleanSetting.of("round_video_camera2_enabled", BuildConfig.DEBUG_VERSION);
+        BooleanSetting.of("round_video_camera2_enabled", false);
 
     public static final EnumSetting<RoundVideoSession.OutputResolution> roundVideoOutputResolution =
         EnumSetting.of("round_video_output_resolution", RoundVideoSession.OutputResolution.P480);

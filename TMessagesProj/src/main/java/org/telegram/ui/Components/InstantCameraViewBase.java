@@ -53,6 +53,12 @@ public abstract class InstantCameraViewBase extends FrameLayout {
                 : new InstantCameraView(context, delegate, resourcesProvider, isNewDesign);
     }
 
+    /** Optional touch-down preparation; does not start recording. */
+    public void prepareCameraForHold() {}
+
+    /** Release camera preparation that has not been adopted by recording. */
+    public void cancelCameraPreparation() {}
+
     /** Selects the implementation used by subsequently created views. */
     public static void setUseCamera2Implementation(boolean enabled) {
         SharedSettings.roundVideoCamera2Enabled.set(enabled);

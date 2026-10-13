@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.16)
 
+# Keep the personal test build within available memory.
+set_property(GLOBAL PROPERTY JOB_POOLS native_compile=4 native_link=1)
+set(CMAKE_JOB_POOL_COMPILE native_compile)
+set(CMAKE_JOB_POOL_LINK native_link)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)

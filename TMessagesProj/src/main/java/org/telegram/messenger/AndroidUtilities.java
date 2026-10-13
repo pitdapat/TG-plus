@@ -3603,7 +3603,10 @@ public class AndroidUtilities {
         if (html == null) return addToClipboard(plain);
         try {
             android.content.ClipboardManager clipboard = (android.content.ClipboardManager) ApplicationLoader.applicationContext.getSystemService(Context.CLIPBOARD_SERVICE);
-            android.content.ClipData clip = android.content.ClipData.newHtmlText("label", plain, html);
+            CharSequence marked = org.telegram.messenger.utils.ClipboardFormatting.fromHtml(plain, html);
+            android.content.ClipData clip = marked == plain
+                    ? android.content.ClipData.newHtmlText("label", plain, html)
+                    : android.content.ClipData.newPlainText("label", marked);
             clipboard.setPrimaryClip(clip);
             return true;
         } catch (Exception e) {
@@ -3617,7 +3620,10 @@ public class AndroidUtilities {
             android.content.ClipboardManager clipboard = (android.content.ClipboardManager) ApplicationLoader.applicationContext.getSystemService(Context.CLIPBOARD_SERVICE);
 
             if (str instanceof Spanned) {
-                android.content.ClipData clip = android.content.ClipData.newHtmlText("label", str, CustomHtml.toHtml((Spanned) str));
+                CharSequence marked = org.telegram.messenger.utils.ClipboardFormatting.withMarkers(str);
+                android.content.ClipData clip = marked == str
+                        ? android.content.ClipData.newHtmlText("label", str, CustomHtml.toHtml((Spanned) str))
+                        : android.content.ClipData.newPlainText("label", marked);
                 clipboard.setPrimaryClip(clip);
                 return true;
             } else {
