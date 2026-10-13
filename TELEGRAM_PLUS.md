@@ -31,3 +31,14 @@ The original README's local signing path is historical; use the variables above.
 
 Full Android recompilation has not been performed during this baseline recovery.
 The pure Java tests and XML/patch checks are repeatable locally.
+
+## New installation identity
+
+Standalone builds now use org.patrick.tgplus.web so they install alongside
+the older org.patrick.roundcamera.web APK without deleting its local data.
+A new permanent RSA-4096 signing key has been created and privately backed up.
+The public certificate SHA-256 is:
+a11bf05dd7c3d8ca457a5fa1204eea3fd0870d2c47853ffc200d3db7a0afad93
+Use the same key for all future updates. The key/passwords are never stored here.
+A new installation requires logging in; secret chats and local-only content
+remain in the old installation. This configuration has not yet produced an APK.
