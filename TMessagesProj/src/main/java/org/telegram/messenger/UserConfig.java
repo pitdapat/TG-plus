@@ -459,6 +459,7 @@ public class UserConfig extends BaseController {
     }
 
     public void clearConfig() {
+        org.telegram.messenger.semantic.SemanticSearch.accountCleared(currentAccount, getClientUserId());
         getPreferences().edit().clear().apply();
 
         sharingMyLocationUntil = 0;
@@ -627,3 +628,4 @@ public class UserConfig extends BaseController {
         return selectedAccount;
     }
 }
+

@@ -14,6 +14,7 @@ import java.util.concurrent.atomic.AtomicLong;
 /** Coordinates policy, persistent local indexing and source-validated results. */
 public final class SemanticSearch {
     private static final ConcurrentHashMap<Integer, SemanticSearch> instances = new ConcurrentHashMap<>();
+    private static boolean cleanupRecovered;
     public final int account; public final long owner;
     private final SharedPreferences prefs;
     private final AtomicLong generation = new AtomicLong();
@@ -32,6 +33,7 @@ public final class SemanticSearch {
         prefs = ApplicationLoader.applicationContext.getSharedPreferences("semantic-search-" + uid, Context.MODE_PRIVATE);
     }
     public static synchronized SemanticSearch get(int account) {
+        initialize();
         long owner = UserConfig.getInstance(account).getClientUserId();
         SemanticSearch old = instances.get(account);
         if (old == null || old.owner != owner) {
@@ -39,6 +41,34 @@ public final class SemanticSearch {
             old = new SemanticSearch(account, owner); instances.put(account, old);
         }
         return old;
+    }
+    /** Event handling loads account policy, without downloading or starting the model. */
+    private static synchronized SemanticSearch eventAccount(int account) {
+        initialize();
+        UserConfig config=UserConfig.getInstance(account);
+        return config.isClientActivated()&&config.getClientUserId()!=0?get(account):null;
+    }
+    private static SharedPreferences pendingCleanup() {
+        return ApplicationLoader.applicationContext.getSharedPreferences("semantic-pending-cleanup",Context.MODE_PRIVATE);
+    }
+    private static synchronized void pending(long uid, boolean add) {
+        HashSet<String> owners=new HashSet<>(pendingCleanup().getStringSet("owners",Collections.emptySet()));
+        if(add)owners.add(""+uid);else owners.remove(""+uid);
+        if(!pendingCleanup().edit().putStringSet("owners",owners).commit())throw new IllegalStateException("Cannot persist search cleanup");
+    }
+    public static synchronized void initialize() {
+        if(cleanupRecovered)return;
+        cleanupRecovered=true;
+        for(String value:new HashSet<>(pendingCleanup().getStringSet("owners",Collections.emptySet()))) {
+            try { long uid=Long.parseLong(value); if(uid>0)purgeOwner(uid); }
+            catch(NumberFormatException e){FileLog.e(e);}
+        }
+    }
+    private static void purgeOwner(long uid) {
+        cleanup(null,()->{
+            deleteIndex(SemanticIndex.file(uid));
+            pending(uid,false);
+        });
     }
     public static void cancelAll() { for (SemanticSearch s : instances.values()) s.cancel(); }
     private static void cleanup(SemanticSearch owner, Runnable action) {
@@ -60,16 +90,17 @@ public final class SemanticSearch {
         }
     }
     public static void sourceChanged(int account) {
-        SemanticSearch s = instances.get(account); if (s == null) return;
+        SemanticSearch s = eventAccount(account); if (s == null) return;
         s.dirty = true; s.cancel();
         AndroidUtilities.runOnUIThread(() -> s.autoIndex(), 2000);
     }
     public static void sourceMessages(int account, ArrayList<TLRPC.Message> messages) {
-        SemanticSearch s=instances.get(account);if(s==null||messages==null)return;
+        if(messages==null)return;
+        SemanticSearch s=eventAccount(account);if(s==null)return;
         Set<Long> allowed=s.allowed();ArrayList<MessageChange> copy=new ArrayList<>();
         for(TLRPC.Message m:messages)if(m!=null&&allowed.contains(MessageObject.getDialogId(m)))copy.add(new MessageChange(m));
         if(copy.isEmpty())return;sourceChanged(account);
-        cleanup(s,()->{try(SemanticIndex index=new SemanticIndex(s.owner)){
+        cleanup(s,()->{if(!SemanticIndex.file(s.owner).exists())return;try(SemanticIndex index=new SemanticIndex(s.owner)){
             for(MessageChange m:copy){if(m.mid<=0)continue;
                 String previous=index.hash(m.dialog,m.mid);
                 if(previous!=null&&(m.hash==null||!s.permits(m.dialog)||!previous.equals(m.hash)))index.remove(m.dialog,m.mid);
@@ -77,20 +108,20 @@ public final class SemanticSearch {
         }});
     }
     public static void chatProtected(int account, long chatId) {
-        SemanticSearch s=instances.get(account);if(s==null||!s.allowed().contains(-chatId))return;
+        SemanticSearch s=eventAccount(account);if(s==null)return;
         s.cancel();s.dirty=true;
-        cleanup(s,()->{try(SemanticIndex index=new SemanticIndex(s.owner)){index.removeDialog(-chatId);}});
+        cleanup(s,()->{if(!SemanticIndex.file(s.owner).exists())return;try(SemanticIndex index=new SemanticIndex(s.owner)){index.removeDialog(-chatId);}});
     }
     public static void messagesDeleted(int account, long dialog, ArrayList<Integer> mids) {
-        SemanticSearch s=instances.get(account); if(s==null)return;
+        SemanticSearch s=eventAccount(account); if(s==null)return;
         s.cancel();s.dirty=true;ArrayList<Integer> copy=mids==null?new ArrayList<>():new ArrayList<>(mids);
-        cleanup(s,()->{try(SemanticIndex index=new SemanticIndex(s.owner)){
+        cleanup(s,()->{if(!SemanticIndex.file(s.owner).exists())return;try(SemanticIndex index=new SemanticIndex(s.owner)){
             for(int mid:copy){if(dialog!=0)index.remove(dialog,mid);else index.db.delete("items","mid=?",new String[]{""+mid});}
         }});
     }
     public static void historyDeleted(int account,long dialog,int maxId){
-        SemanticSearch s=instances.get(account);if(s==null)return;s.cancel();s.dirty=true;
-        cleanup(s,()->{try(SemanticIndex index=new SemanticIndex(s.owner)){
+        SemanticSearch s=eventAccount(account);if(s==null)return;s.cancel();s.dirty=true;
+        cleanup(s,()->{if(!SemanticIndex.file(s.owner).exists())return;try(SemanticIndex index=new SemanticIndex(s.owner)){
             index.db.delete("items",maxId>0?"dialog=? AND mid<=?":"dialog=?",maxId>0?new String[]{""+dialog,""+maxId}:new String[]{""+dialog});
         }});
     }
@@ -101,13 +132,26 @@ public final class SemanticSearch {
             for(SemanticSearch s:instances.values()){s.dirty=true;s.status("Search index cleared");}
         });
     }
-    public static void accountCleared(int account) { SemanticSearch s = instances.remove(account); if (s != null) s.logout(); }
+    public static synchronized void accountCleared(int account) { accountCleared(account,UserConfig.getInstance(account).getClientUserId()); }
+    public static synchronized void accountCleared(int account,long uid) {
+        initialize();
+        SemanticSearch s=instances.remove(account);
+        if(s!=null)s.logout();
+        if(uid>0&&(s==null||s.owner!=uid))clearOwner(uid);
+    }
     public static void resumeEnabledAccounts() {
+        initialize();
         for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) if (UserConfig.getInstance(a).isClientActivated()) get(a).autoIndex();
     }
     private void logout() {
-        cancel(); prefs.edit().clear().apply();
-        cleanup(this,() -> deleteIndex(SemanticIndex.file(owner)));
+        cancel();clearOwner(owner);
+    }
+    private static void clearOwner(long uid) {
+        if(uid<=0)return;
+        try { pending(uid,true); }
+        catch(Exception e){FileLog.e(e);}
+        ApplicationLoader.applicationContext.getSharedPreferences("semantic-search-"+uid,Context.MODE_PRIVATE).edit().clear().commit();
+        purgeOwner(uid);
     }
     private static void deleteIndex(java.io.File file) {
         if(file.exists()&&!android.database.sqlite.SQLiteDatabase.deleteDatabase(file))throw new IllegalStateException("Cannot remove search database");
