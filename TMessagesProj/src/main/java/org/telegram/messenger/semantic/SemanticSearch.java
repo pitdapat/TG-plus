@@ -41,6 +41,24 @@ public final class SemanticSearch {
         return old;
     }
     public static void cancelAll() { for (SemanticSearch s : instances.values()) s.cancel(); }
+    private static void cleanup(SemanticSearch owner, Runnable action) {
+        SemanticModel.QUEUE.postRunnable(() -> {
+            SemanticTasks.run(action, e -> {
+                FileLog.e(e);
+                if (owner != null) { owner.dirty=true; owner.status("Search data cleanup failed; retry clearing the index"); }
+                else for(SemanticSearch s:instances.values()) { s.dirty=true; s.status("Search data cleanup failed; retry clearing the index"); }
+            });
+        });
+    }
+    private static final class MessageChange {
+        final long dialog; final int mid; final String hash;
+        MessageChange(TLRPC.Message m) {
+            dialog=MessageObject.getDialogId(m); mid=m.id;
+            String next=null;
+            if(SemanticMessages.eligible(m))try{next=SemanticText.fingerprint(m.message);}catch(Exception e){FileLog.e(e);}
+            hash=next;
+        }
+    }
     public static void sourceChanged(int account) {
         SemanticSearch s = instances.get(account); if (s == null) return;
         s.dirty = true; s.cancel();
@@ -48,33 +66,38 @@ public final class SemanticSearch {
     }
     public static void sourceMessages(int account, ArrayList<TLRPC.Message> messages) {
         SemanticSearch s=instances.get(account);if(s==null||messages==null)return;
-        Set<Long> allowed=s.allowed();ArrayList<TLRPC.Message> copy=new ArrayList<>();
-        for(TLRPC.Message m:messages)if(m!=null&&allowed.contains(MessageObject.getDialogId(m)))copy.add(m);
+        Set<Long> allowed=s.allowed();ArrayList<MessageChange> copy=new ArrayList<>();
+        for(TLRPC.Message m:messages)if(m!=null&&allowed.contains(MessageObject.getDialogId(m)))copy.add(new MessageChange(m));
         if(copy.isEmpty())return;sourceChanged(account);
-        SemanticModel.QUEUE.postRunnable(()->{try(SemanticIndex index=new SemanticIndex(s.owner)){
-            for(TLRPC.Message m:copy){if(m==null||m.id<=0)continue;long dialog=MessageObject.getDialogId(m);
-                String previous=index.hash(dialog,m.id);
-                if(previous!=null&&(m.message==null||!previous.equals(SemanticText.fingerprint(m.message))))index.remove(dialog,m.id);
+        cleanup(s,()->{try(SemanticIndex index=new SemanticIndex(s.owner)){
+            for(MessageChange m:copy){if(m.mid<=0)continue;
+                String previous=index.hash(m.dialog,m.mid);
+                if(previous!=null&&(m.hash==null||!s.permits(m.dialog)||!previous.equals(m.hash)))index.remove(m.dialog,m.mid);
             }
-        }catch(Exception e){FileLog.e(e);}});
+        }});
+    }
+    public static void chatProtected(int account, long chatId) {
+        SemanticSearch s=instances.get(account);if(s==null||!s.allowed().contains(-chatId))return;
+        s.cancel();s.dirty=true;
+        cleanup(s,()->{try(SemanticIndex index=new SemanticIndex(s.owner)){index.removeDialog(-chatId);}});
     }
     public static void messagesDeleted(int account, long dialog, ArrayList<Integer> mids) {
         SemanticSearch s=instances.get(account); if(s==null)return;
         s.cancel();s.dirty=true;ArrayList<Integer> copy=mids==null?new ArrayList<>():new ArrayList<>(mids);
-        SemanticModel.QUEUE.postRunnable(()->{try(SemanticIndex index=new SemanticIndex(s.owner)){
+        cleanup(s,()->{try(SemanticIndex index=new SemanticIndex(s.owner)){
             for(int mid:copy){if(dialog!=0)index.remove(dialog,mid);else index.db.delete("items","mid=?",new String[]{""+mid});}
         }});
     }
     public static void historyDeleted(int account,long dialog,int maxId){
         SemanticSearch s=instances.get(account);if(s==null)return;s.cancel();s.dirty=true;
-        SemanticModel.QUEUE.postRunnable(()->{try(SemanticIndex index=new SemanticIndex(s.owner)){
+        cleanup(s,()->{try(SemanticIndex index=new SemanticIndex(s.owner)){
             index.db.delete("items",maxId>0?"dialog=? AND mid<=?":"dialog=?",maxId>0?new String[]{""+dialog,""+maxId}:new String[]{""+dialog});
         }});
     }
     public static void clearAllIndexes(){
-        cancelAll();SemanticModel.QUEUE.postRunnable(()->{
+        cancelAll();cleanup(null,()->{
             java.io.File[] files=ApplicationLoader.applicationContext.getNoBackupFilesDir().listFiles();
-            if(files!=null)for(java.io.File f:files)if(f.getName().startsWith("semantic-index-")&&f.getName().endsWith(".db"))android.database.sqlite.SQLiteDatabase.deleteDatabase(f);
+            if(files!=null)for(java.io.File f:files)if(f.getName().startsWith("semantic-index-")&&f.getName().endsWith(".db"))deleteIndex(f);
             for(SemanticSearch s:instances.values()){s.dirty=true;s.status("Search index cleared");}
         });
     }
@@ -84,7 +107,10 @@ public final class SemanticSearch {
     }
     private void logout() {
         cancel(); prefs.edit().clear().apply();
-        SemanticModel.QUEUE.postRunnable(() -> android.database.sqlite.SQLiteDatabase.deleteDatabase(SemanticIndex.file(owner)));
+        cleanup(this,() -> deleteIndex(SemanticIndex.file(owner)));
+    }
+    private static void deleteIndex(java.io.File file) {
+        if(file.exists()&&!android.database.sqlite.SQLiteDatabase.deleteDatabase(file))throw new IllegalStateException("Cannot remove search database");
     }
     public void observe(SemanticModel.Listener l) { observer = l; }
     private void status(String s) { status = s; SemanticModel.Listener o = observer; if (o != null) AndroidUtilities.runOnUIThread(o::updated); }
@@ -111,7 +137,7 @@ public final class SemanticSearch {
         Set<Long> current = allowed(); if (value) current.add(dialog); else current.remove(dialog);
         HashSet<String> strings = new HashSet<>(); for (long d : current) strings.add("" + d);
         prefs.edit().putStringSet("allowed", strings).apply(); cancel(); dirty = true;
-        if (!value) SemanticModel.QUEUE.postRunnable(() -> { try (SemanticIndex index = new SemanticIndex(owner)) { index.removeDialog(dialog); } });
+        if (!value) cleanup(this,() -> { try (SemanticIndex index = new SemanticIndex(owner)) { index.removeDialog(dialog); } });
     }
     public void pause() { prefs.edit().putBoolean("paused",true).apply(); cancel(); status("Indexing paused"); }
     public long revision() { return generation.get(); }
@@ -120,11 +146,16 @@ public final class SemanticSearch {
     public void clear() {
         prefs.edit().putBoolean("paused",true).apply();
         cancel(); dirty = true;
-        SemanticModel.QUEUE.postRunnable(() -> { try (SemanticIndex index = new SemanticIndex(owner)) { index.clear(); status("Search index cleared"); } });
+        cleanup(this,() -> { try (SemanticIndex index = new SemanticIndex(owner)) { index.clear(); status("Search index cleared"); } });
     }
     private boolean charging() { Intent i = ApplicationLoader.applicationContext.registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED)); return i != null && i.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0; }
-    public void autoIndex() { if (dirty && !prefs.getBoolean("paused",false) && enabled() && SemanticModel.ready() && (!chargingOnly() || charging())) index(); }
-    public void index() {
+    public void autoIndex() { if (dirty && !prefs.getBoolean("paused",false) && enabled() && SemanticModel.ready() && SemanticPolicy.canRun(true,chargingOnly(),charging())) index(true); }
+    public void index() { index(false); }
+    private void checkpoint(boolean automatic, long token, long dialog) throws InterruptedException {
+        if (yieldIndex || token != generation.get() || !permits(dialog)) throw new InterruptedException("Indexing paused; tap Index now to resume");
+        if (!SemanticPolicy.canRun(automatic,chargingOnly(),!automatic||charging())) throw new InterruptedException("Automatic indexing paused; plug in and reopen the app to resume");
+    }
+    private void index(boolean automatic) {
         if (busy) return;
         if (!enabled()) { status("Enable semantic search first"); return; }
         if (!SemanticModel.ready()) { status("Download the model first"); return; }
@@ -141,32 +172,34 @@ public final class SemanticSearch {
                 for (long dialog : chats) {
                     int before = Integer.MAX_VALUE;
                     while (true) {
-                        if (yieldIndex || token != generation.get() || !permits(dialog)) throw new InterruptedException();
+                        checkpoint(automatic,token,dialog);
                         SemanticMessages.Page page = SemanticMessages.page(account, owner, dialog, since, before);
                         if (page.scanned == 0) break;
                         before = page.before;
                         for (SemanticMessages.Message m : page.items) {
-                            if (yieldIndex || token != generation.get() || !permits(dialog)) throw new InterruptedException();
+                            checkpoint(automatic,token,dialog);
                             if (m.hash.equals(index.hash(dialog, m.id))) { index.keep(dialog, m.id, seen); continue; }
                             ArrayList<String> parts = SemanticText.chunks(m.text);
-                            if (index.count() + parts.size() > 10000) { capped = true; break; }
+                            if (!index.canPut(m,parts.size())) { capped = true; continue; }
                             ArrayList<float[]> vectors = new ArrayList<>();
                             for (String part : parts) {
-                                if (yieldIndex || token != generation.get()) throw new InterruptedException();
+                                checkpoint(automatic,token,dialog);
                                 vectors.add(SemanticModel.embed("title: none | text: " + part));
                             }
                             SemanticMessages.Message current = SemanticMessages.resolve(account, owner, dialog, m.id);
-                            if (current != null && current.hash.equals(m.hash) && token == generation.get() && permits(dialog)) index.put(m, parts, vectors, seen);
+                            checkpoint(automatic,token,dialog);
+                            if (current != null && current.hash.equals(m.hash)) {
+                                if(!index.put(m, parts, vectors, seen))capped=true;
+                            }
                             processed++; status("Indexing downloaded messages: " + processed + " updated");
                         }
-                        if (capped) break;
                     }
-                    if (!capped && token == generation.get()) index.finish(dialog, seen);
-                    if (capped) break;
+                    if (token == generation.get()) index.finish(dialog, seen);
                 }
-                dirty = capped;
-                status("Indexed " + index.count() + " text chunks from downloaded history" + (capped ? " • 10,000-chunk limit reached" : " • up to date"));
-            } catch (InterruptedException e) { dirty = true; status("Indexing paused; tap Index now to resume"); }
+                if(token!=generation.get())throw new InterruptedException("Indexing paused; tap Index now to resume");
+                dirty = false;
+                status("Indexed " + index.count() + " text chunks from downloaded history" + (capped ? " • older text omitted at the 10,000-chunk limit" : " • up to date"));
+            } catch (InterruptedException e) { dirty = true; status(e.getMessage()); }
             catch (Exception | LinkageError e) { dirty = true; status("Indexing failed: " + e.getClass().getSimpleName() + ". Retry or share the issue."); FileLog.e(e); }
             finally { SemanticModel.close(); busy = false; SemanticModel.notifyChanged(); }
         });
@@ -213,3 +246,4 @@ public final class SemanticSearch {
         });
     }
 }
+

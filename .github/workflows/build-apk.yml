@@ -101,8 +101,9 @@ jobs:
 
       - name: Run semantic text checks
         run: |
-          javac -d "$RUNNER_TEMP/tgplus-tests" TMessagesProj/src/main/java/org/telegram/messenger/semantic/SemanticText.java tests/SemanticTextTest.java
+          javac -d "$RUNNER_TEMP/tgplus-tests" TMessagesProj/src/main/java/org/telegram/messenger/semantic/SemanticText.java TMessagesProj/src/main/java/org/telegram/messenger/semantic/SemanticPolicy.java TMessagesProj/src/main/java/org/telegram/messenger/semantic/SemanticTasks.java tests/SemanticTextTest.java tests/SemanticPolicyTest.java
           java -cp "$RUNNER_TEMP/tgplus-tests" SemanticTextTest
+          java -cp "$RUNNER_TEMP/tgplus-tests" SemanticPolicyTest
 
       - name: Restore and verify signing key privately
         env:
@@ -193,4 +194,5 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
+
 

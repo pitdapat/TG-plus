@@ -82,10 +82,20 @@ public final class SemanticModel {
     public static void delete() {
         synchronized (SemanticModel.class) { generation.incrementAndGet(); }
         SemanticSearch.cancelAll(); status("Removing model…");
-        QUEUE.postRunnable(() -> { close(); removeTree(dir()); status("Model not downloaded"); });
+        QUEUE.postRunnable(() -> {
+            try { close(); status(removeTree(dir()) ? "Model not downloaded" : "Unable to remove all model files; retry deleting"); }
+            catch (Exception | LinkageError e) { org.telegram.messenger.FileLog.e(e); status("Model deletion failed; retry deleting"); }
+        });
     }
-    public static void close() { if (engine != null) { engine.close(); engine = null; } }
-    private static void removeTree(File f) { File[] children = f.listFiles(); if (children != null) for (File c : children) removeTree(c); if (!f.delete() && f.exists()) status("Unable to remove all model files"); }
+    public static void close() {
+        EmbeddingEngine old=engine; engine=null;
+        if(old!=null)try{old.close();}catch(Exception | LinkageError e){org.telegram.messenger.FileLog.e(e);}
+    }
+    private static boolean removeTree(File f) {
+        boolean removed=true; File[] children=f.listFiles();
+        if(children!=null)for(File c:children)removed=removeTree(c)&&removed;
+        return (f.delete()||!f.exists())&&removed;
+    }
     public static float[] embed(String text) throws Exception {
         if (!ready()) throw new IOException("Download the model first");
         if (engine == null) {
@@ -96,3 +106,4 @@ public final class SemanticModel {
         return SemanticText.normalize(engine.computeEmbedding(Collections.singletonList(new InputData.Text(text)), new EmbeddingOptions(true, true, null, null)).getEmbedding());
     }
 }
+

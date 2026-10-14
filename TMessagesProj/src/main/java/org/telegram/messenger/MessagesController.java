@@ -6994,6 +6994,7 @@ public class MessagesController extends BaseController implements NotificationCe
         if (chat == null) {
             return;
         }
+        if (chat.noforwards) org.telegram.messenger.semantic.SemanticSearch.chatProtected(currentAccount, chat.id);
         TLRPC.Chat oldChat = chats.get(chat.id);
         if (oldChat == chat) {
             return;
@@ -25550,3 +25551,4 @@ public class MessagesController extends BaseController implements NotificationCe
         setWebBrowserSettings(webBrowserSettings);
     }
 }
+

@@ -15,6 +15,7 @@ final class SemanticIndex implements AutoCloseable {
         db = SQLiteDatabase.openOrCreateDatabase(file(owner), null);
         db.execSQL("PRAGMA secure_delete=ON");
         db.execSQL("CREATE TABLE IF NOT EXISTS items(dialog INTEGER,mid INTEGER,part INTEGER,date INTEGER,hash TEXT,vector BLOB,text TEXT,seen INTEGER,PRIMARY KEY(dialog,mid,part))");
+        db.execSQL("CREATE INDEX IF NOT EXISTS items_date ON items(date)");
         db.execSQL("CREATE TABLE IF NOT EXISTS metadata(version TEXT)");
         String version = SemanticModel.HASH + ":256:text-v1";
         try (Cursor c = db.rawQuery("SELECT version FROM metadata LIMIT 1", null)) {
@@ -41,15 +42,33 @@ final class SemanticIndex implements AutoCloseable {
     }
     void keep(long dialog, int mid, long seen) { ContentValues v = new ContentValues(); v.put("seen", seen); db.update("items", v, "dialog=? AND mid=?", new String[]{"" + dialog, "" + mid}); }
     int count() { try (Cursor c = db.rawQuery("SELECT count(*) FROM items", null)) { c.moveToFirst(); return c.getInt(0); } }
-    void put(SemanticMessages.Message m, ArrayList<String> chunks, ArrayList<float[]> vectors, long seen) {
+    private ArrayList<SemanticPolicy.Entry> room(SemanticMessages.Message m, int incoming) {
+        if(incoming<1||incoming>SemanticPolicy.MAX_CHUNKS)return null;
+        int replacing;
+        try (Cursor c = db.rawQuery("SELECT count(*) FROM items WHERE dialog=? AND mid=?", new String[]{""+m.dialog,""+m.id})) { c.moveToFirst(); replacing=c.getInt(0); }
+        int used = count();
+        ArrayList<SemanticPolicy.Entry> entries = new ArrayList<>();
+        if (used - replacing + incoming > SemanticPolicy.MAX_CHUNKS) {
+            try (Cursor c = db.rawQuery("SELECT dialog,mid,MIN(date),count(*) FROM items WHERE date<? AND NOT(dialog=? AND mid=?) GROUP BY dialog,mid", new String[]{""+m.date,""+m.dialog,""+m.id})) {
+                while(c.moveToNext()) entries.add(new SemanticPolicy.Entry(c.getLong(0),c.getInt(1),c.getInt(2),c.getInt(3)));
+            }
+        }
+        return SemanticPolicy.victims(used,replacing,incoming,m.date,entries);
+    }
+    boolean canPut(SemanticMessages.Message m, int incoming) { return room(m,incoming)!=null; }
+    boolean put(SemanticMessages.Message m, ArrayList<String> chunks, ArrayList<float[]> vectors, long seen) {
         db.beginTransaction();
         try {
+            ArrayList<SemanticPolicy.Entry> victims = room(m,chunks.size());
+            if(victims==null) return false;
+            for(SemanticPolicy.Entry victim:victims) remove(victim.dialog,victim.mid);
             remove(m.dialog, m.id);
             for (int part = 0; part < chunks.size(); part++) {
                 ContentValues v = new ContentValues(); v.put("dialog", m.dialog); v.put("mid", m.id); v.put("part", part); v.put("date", m.date); v.put("hash", m.hash); v.put("text", chunks.get(part)); v.put("vector", SemanticText.encode(vectors.get(part))); v.put("seen", seen);
                 db.insertOrThrow("items", null, v);
             }
             db.setTransactionSuccessful();
+            return true;
         } finally { db.endTransaction(); }
     }
     void remove(long dialog, int mid) { db.delete("items", "dialog=? AND mid=?", new String[]{"" + dialog, "" + mid}); }
@@ -58,3 +77,4 @@ final class SemanticIndex implements AutoCloseable {
     void finish(long dialog, long seen) { db.delete("items", "dialog=? AND seen<>?", new String[]{"" + dialog, "" + seen}); }
     @Override public void close() { db.close(); }
 }
+

@@ -5861,6 +5861,7 @@ public class MessagesStorage extends BaseController {
     }
 
     public void createTaskForMid(long dialogId, int messageId, int time, int readTime, int ttl, boolean inner) {
+        org.telegram.messenger.semantic.SemanticSearch.messagesDeleted(currentAccount, dialogId, new ArrayList<>(java.util.Collections.singletonList(messageId)));
         storageQueue.postRunnable(() -> {
             SQLitePreparedStatement state = null;
             try {
@@ -19068,3 +19069,4 @@ public class MessagesStorage extends BaseController {
         }
     }
 }
+

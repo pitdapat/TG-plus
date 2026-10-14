@@ -33,11 +33,13 @@ public final class SemanticMessages {
         TLRPC.Message message;
         try { message = TLRPC.Message.TLdeserialize(buffer, buffer.readInt32(false), false); }
         finally { buffer.reuse(); }
-        if (message == null || message.id <= 0 || message.message == null || message.message.trim().isEmpty()
-                || message.noforwards || message.expire_date > 0 || message.ttl > 0 || message.ttl_period > 0
-                || (message.media != null && message.media.ttl_seconds > 0)
-                || (message.action != null && !(message.action instanceof TLRPC.TL_messageActionEmpty))) return null;
+        if (!eligible(message)) return null;
         return new Message(dialog, message.id, message.date, message.message);
+    }
+    public static boolean eligible(TLRPC.Message message) {
+        return message!=null && SemanticPolicy.eligible(message.id,message.message,message.noforwards,
+                message.expire_date>0 || message.ttl>0 || message.ttl_period>0 || (message.media!=null && message.media.ttl_seconds>0),
+                message.action!=null && !(message.action instanceof TLRPC.TL_messageActionEmpty));
     }
     public static final class Page { public final ArrayList<Message> items = new ArrayList<>(); public int before; public int scanned; }
     public static Page page(int account, long owner, long dialog, int since, int before) throws Exception {
@@ -45,7 +47,7 @@ public final class SemanticMessages {
         return storage(account, () -> {
             Page page = new Page();
             if (UserConfig.getInstance(account).getClientUserId() != owner) return page;
-            SQLiteCursor c = MessagesStorage.getInstance(account).getDatabase().queryFinalized("SELECT mid,data FROM messages_v2 WHERE uid = " + dialog + " AND mid > 0 AND mid < " + before + " AND date >= " + since + " ORDER BY mid DESC LIMIT 100");
+            SQLiteCursor c = MessagesStorage.getInstance(account).getDatabase().queryFinalized("SELECT mid,data FROM messages_v2 m WHERE uid = " + dialog + " AND mid > 0 AND mid < " + before + " AND date >= " + since + " AND COALESCE(ttl,0)=0 AND NOT EXISTS(SELECT 1 FROM enc_tasks_v4 t WHERE t.uid=m.uid AND t.mid=m.mid) ORDER BY mid DESC LIMIT 100");
             try { while (c.next()) { page.scanned++; page.before = c.intValue(0); Message m = decode(dialog, c.byteBufferValue(1)); if (m != null) page.items.add(m); } }
             finally { c.dispose(); }
             return page;
@@ -54,8 +56,9 @@ public final class SemanticMessages {
     public static Message resolve(int account, long owner, long dialog, int id) throws Exception {
         return storage(account, () -> {
             if (!UserConfig.getInstance(account).isClientActivated() || UserConfig.getInstance(account).getClientUserId() != owner) return null;
-            SQLiteCursor c = MessagesStorage.getInstance(account).getDatabase().queryFinalized("SELECT data FROM messages_v2 WHERE uid = " + dialog + " AND mid = " + id);
+            SQLiteCursor c = MessagesStorage.getInstance(account).getDatabase().queryFinalized("SELECT data FROM messages_v2 m WHERE uid = " + dialog + " AND mid = " + id + " AND COALESCE(ttl,0)=0 AND NOT EXISTS(SELECT 1 FROM enc_tasks_v4 t WHERE t.uid=m.uid AND t.mid=m.mid)");
             try { return c.next() ? decode(dialog, c.byteBufferValue(0)) : null; } finally { c.dispose(); }
         });
     }
 }
+
