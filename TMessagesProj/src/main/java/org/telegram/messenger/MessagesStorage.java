@@ -799,6 +799,7 @@ public class MessagesStorage extends BaseController {
     }
 
     private void cleanupInternal(boolean deleteFiles) {
+        org.telegram.messenger.semantic.SemanticSearch.accountCleared(currentAccount);
         if (deleteFiles) {
             reset();
         } else {
@@ -4401,6 +4402,7 @@ public class MessagesStorage extends BaseController {
     }
 
     public void deleteDialog(long did, int messagesOnly) {
+        org.telegram.messenger.semantic.SemanticSearch.historyDeleted(currentAccount,did,0);
         storageQueue.postRunnable(() -> {
             SQLiteCursor cursor = null;
             SQLiteCursor cursor2 = null;
@@ -11861,6 +11863,7 @@ public class MessagesStorage extends BaseController {
     }
 
     private void putMessagesInternal(ArrayList<TLRPC.Message> messages, boolean withTransaction, boolean doNotUpdateDialogDate, int downloadMask, boolean ifNoLastMessage, int mode, long threadMessageId) {
+        if(mode==0)org.telegram.messenger.semantic.SemanticSearch.sourceMessages(currentAccount,messages);
         if (messages != null) {
             ArrayList<TL_ephemeral.EphemeralMessage> ephemeralMessages = null;
             for (TLRPC.Message message : messages) {
@@ -14515,6 +14518,7 @@ public class MessagesStorage extends BaseController {
     }
 
     private ArrayList<Long> markMessagesAsDeletedInternal(long dialogId, ArrayList<Integer> messages, boolean deleteFiles, int mode, int threadMessageId) {
+        if(mode==0)org.telegram.messenger.semantic.SemanticSearch.messagesDeleted(currentAccount,dialogId,messages);
         SQLiteCursor cursor = null;
         SQLitePreparedStatement state = null;
         try {
@@ -15325,6 +15329,7 @@ public class MessagesStorage extends BaseController {
     }
 
     private ArrayList<Long> markMessagesAsDeletedInternal(long channelId, int mid, boolean deleteFiles) {
+        org.telegram.messenger.semantic.SemanticSearch.historyDeleted(currentAccount,-channelId,mid);
         SQLiteCursor cursor = null;
         SQLitePreparedStatement state = null;
         try {
@@ -16077,6 +16082,7 @@ public class MessagesStorage extends BaseController {
 
     // put messages in data base while load history
     public void putMessages(TLRPC.messages_Messages messages, long dialogId, int load_type, int max_id, boolean createDialog, int mode, long threadMessageId) {
+        if(mode==0)org.telegram.messenger.semantic.SemanticSearch.sourceMessages(currentAccount,messages==null?null:messages.messages);
         storageQueue.postRunnable(() -> {
             SQLitePreparedStatement state_messages = null;
             SQLitePreparedStatement state_messages_topics = null;

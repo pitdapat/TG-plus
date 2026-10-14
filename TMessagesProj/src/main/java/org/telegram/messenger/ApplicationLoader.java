@@ -692,6 +692,7 @@ public class ApplicationLoader extends Application {
     }
 
     public void onResume() {
+        org.telegram.messenger.semantic.SemanticSearch.resumeEnabledAccounts();
 
     }
 
