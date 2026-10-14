@@ -18,6 +18,7 @@ public final class SemanticSearch {
     private final SharedPreferences prefs;
     private final AtomicLong generation = new AtomicLong();
     private volatile boolean busy;
+    private volatile boolean yieldIndex;
     private volatile String status = "Choose chats and download the model to begin";
     private volatile SemanticModel.Listener observer;
     private volatile boolean dirty = true;
@@ -129,28 +130,29 @@ public final class SemanticSearch {
         if (!SemanticModel.ready()) { status("Download the model first"); return; }
         Set<Long> chats = allowed(); if (chats.isEmpty()) { status("Select at least one allowed chat"); return; }
         prefs.edit().putBoolean("paused",false).apply();
-        busy = true; long token = generation.get(); int scopeDays = days();
+        yieldIndex=false;busy = true; long token = generation.get(); int scopeDays = days();
         SemanticModel.QUEUE.postRunnable(() -> {
             int processed = 0; boolean capped = false;
             try (SemanticIndex index = new SemanticIndex(owner)) {
                 for (SemanticIndex.Item i : index.all()) if (!permits(i.dialog)) index.removeDialog(i.dialog);
                 int since = scopeDays == 0 ? 0 : (int) (System.currentTimeMillis() / 1000 - scopeDays * 86400L);
+                index.db.delete("items","date<?",new String[]{""+since});
                 long seen = System.currentTimeMillis();
                 for (long dialog : chats) {
                     int before = Integer.MAX_VALUE;
                     while (true) {
-                        if (token != generation.get() || !permits(dialog)) throw new InterruptedException();
+                        if (yieldIndex || token != generation.get() || !permits(dialog)) throw new InterruptedException();
                         SemanticMessages.Page page = SemanticMessages.page(account, owner, dialog, since, before);
                         if (page.scanned == 0) break;
                         before = page.before;
                         for (SemanticMessages.Message m : page.items) {
-                            if (token != generation.get() || !permits(dialog)) throw new InterruptedException();
+                            if (yieldIndex || token != generation.get() || !permits(dialog)) throw new InterruptedException();
                             if (m.hash.equals(index.hash(dialog, m.id))) { index.keep(dialog, m.id, seen); continue; }
                             ArrayList<String> parts = SemanticText.chunks(m.text);
                             if (index.count() + parts.size() > 10000) { capped = true; break; }
                             ArrayList<float[]> vectors = new ArrayList<>();
                             for (String part : parts) {
-                                if (token != generation.get()) throw new InterruptedException();
+                                if (yieldIndex || token != generation.get()) throw new InterruptedException();
                                 vectors.add(SemanticModel.embed("title: none | text: " + part));
                             }
                             SemanticMessages.Message current = SemanticMessages.resolve(account, owner, dialog, m.id);
@@ -170,16 +172,18 @@ public final class SemanticSearch {
         });
     }
     public void search(String query, Results callback) {
+        if(busy)yieldIndex=true;
         long token = generation.get();
         SemanticModel.QUEUE.postRunnable(() -> {
             ArrayList<Result> results = new ArrayList<>(); String error = null;
             try (SemanticIndex index = new SemanticIndex(owner)) {
                 if (!enabled() || !SemanticModel.ready()) throw new IllegalStateException("Enable search and download the model first");
                 if (query.trim().isEmpty() || query.length() > 400) throw new IllegalArgumentException("Enter a shorter search query");
+                if(token!=generation.get())throw new InterruptedException();
                 float[] q = SemanticModel.embed("task: search result | query: " + query.trim());
                 ArrayList<SemanticIndex.Item> candidates = index.all();
                 int since = days() == 0 ? 0 : (int) (System.currentTimeMillis()/1000 - days()*86400L);
-                candidates.removeIf(i -> !permits(i.dialog) || i.date < since);
+                candidates.removeIf(i -> !permits(i.dialog) || i.date < since || (SemanticText.cosine(q,i.vector)<0.25 && SemanticText.keyword(i.text,query)==0));
                 ArrayList<SemanticIndex.Item> keywords = new ArrayList<>(candidates);
                 candidates.sort((a,b) -> Double.compare(SemanticText.cosine(q,b.vector), SemanticText.cosine(q,a.vector)));
                 keywords.sort((a,b) -> Double.compare(SemanticText.keyword(b.text,query),SemanticText.keyword(a.text,query)));

@@ -34,7 +34,7 @@ public final class SemanticMessages {
         try { message = TLRPC.Message.TLdeserialize(buffer, buffer.readInt32(false), false); }
         finally { buffer.reuse(); }
         if (message == null || message.id <= 0 || message.message == null || message.message.trim().isEmpty()
-                || message.noforwards || message.ttl > 0 || message.ttl_period > 0
+                || message.noforwards || message.expire_date > 0 || message.ttl > 0 || message.ttl_period > 0
                 || (message.media != null && message.media.ttl_seconds > 0)
                 || (message.action != null && !(message.action instanceof TLRPC.TL_messageActionEmpty))) return null;
         return new Message(dialog, message.id, message.date, message.message);

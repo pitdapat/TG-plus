@@ -13,6 +13,7 @@ final class SemanticIndex implements AutoCloseable {
     static File file(long owner) { return new File(ApplicationLoader.applicationContext.getNoBackupFilesDir(), "semantic-index-" + owner + ".db"); }
     SemanticIndex(long owner) {
         db = SQLiteDatabase.openOrCreateDatabase(file(owner), null);
+        db.execSQL("PRAGMA secure_delete=ON");
         db.execSQL("CREATE TABLE IF NOT EXISTS items(dialog INTEGER,mid INTEGER,part INTEGER,date INTEGER,hash TEXT,vector BLOB,text TEXT,seen INTEGER,PRIMARY KEY(dialog,mid,part))");
         db.execSQL("CREATE TABLE IF NOT EXISTS metadata(version TEXT)");
         String version = SemanticModel.HASH + ":256:text-v1";
@@ -53,7 +54,7 @@ final class SemanticIndex implements AutoCloseable {
     }
     void remove(long dialog, int mid) { db.delete("items", "dialog=? AND mid=?", new String[]{"" + dialog, "" + mid}); }
     void removeDialog(long dialog) { db.delete("items", "dialog=?", new String[]{"" + dialog}); }
-    void clear() { db.delete("items", null, null); }
+    void clear() { db.delete("items", null, null); db.execSQL("VACUUM"); }
     void finish(long dialog, long seen) { db.delete("items", "dialog=? AND seen<>?", new String[]{"" + dialog, "" + seen}); }
     @Override public void close() { db.close(); }
 }

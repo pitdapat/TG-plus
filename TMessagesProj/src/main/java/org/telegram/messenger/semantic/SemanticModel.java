@@ -39,7 +39,9 @@ public final class SemanticModel {
     public static File weights() { return new File(dir(), "embeddinggemma-2-text.litertlm"); }
     public static boolean ready() { return weights().isFile() && weights().length() == SIZE; }
     public static boolean downloading() { return downloading; }
-    public static String status() { return downloading ? status : ready() ? "Model ready • CPU • 165 MB" : status; }
+    public static long storageBytes() { return bytes(dir()); }
+    private static long bytes(File f) { if(f.isFile())return f.length();long count=0;File[] children=f.listFiles();if(children!=null)for(File c:children)count+=bytes(c);return count; }
+    public static String status() { String label=downloading?status:ready()?"Model ready • CPU":status;return label+String.format(Locale.ROOT," • %.1f MB on device",storageBytes()/1000000.0); }
     private static void status(String text) { status = text; notifyChanged(); }
     public static void download() {
         if (downloading || ready()) return;
