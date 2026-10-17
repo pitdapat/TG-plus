@@ -30,7 +30,6 @@ android {
     defaultConfig.applicationId = APP_PACKAGE
     defaultConfig.manifestPlaceholders = [telegramPlusMapsApiKey: System.getenv("TELEGRAM_PLUS_MAPS_API_KEY") ?: ""]
 
-    sourceSets.main.jniLibs.srcDirs = ['../TMessagesProj/jni/']
 
     lintOptions {
         disable 'MissingTranslation'
@@ -63,6 +62,12 @@ android {
             storePassword System.getenv("TELEGRAM_PLUS_STORE_PASSWORD")
             keyAlias System.getenv("TELEGRAM_PLUS_KEY_ALIAS")
             keyPassword System.getenv("TELEGRAM_PLUS_KEY_PASSWORD")
+        }
+    }
+
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging = true
         }
     }
 

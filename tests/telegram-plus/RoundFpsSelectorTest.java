@@ -15,9 +15,13 @@ public class RoundFpsSelectorTest {
         check(1, new int[][]{{7,30},{15,30}});
         check(0, new int[][]{{30,30},{15,30}});
         check(1, new int[][]{{15,30},{30,30}});
+        check(1, new int[][]{{30,60},{15,30}});
         if (RoundFpsSelector.choose(new int[][]{{30,30},{30,60}}, 60, 30) != 1) {
             throw new AssertionError("Non-round 60 FPS policy changed");
         }
-        System.out.println("12 FPS policy checks passed");
+        if (RoundFpsSelector.choose(new int[][]{{30,60},{60,60}}, 60, 60) != 1) {
+            throw new AssertionError("Fixed 60 FPS policy changed");
+        }
+        System.out.println("14 FPS policy checks passed");
     }
 }

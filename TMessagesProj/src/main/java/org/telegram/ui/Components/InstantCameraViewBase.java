@@ -48,7 +48,9 @@ public abstract class InstantCameraViewBase extends FrameLayout {
             Theme.ResourcesProvider resourcesProvider,
             boolean isNewDesign
     ) {
-        return SharedSettings.roundVideoCamera2Enabled.get()
+        final boolean useCamera2Impl = SharedSettings.roundVideoCamera2Enabled.get();
+
+        return useCamera2Impl
                 ? new InstantCameraView2(context, delegate, resourcesProvider, isNewDesign)
                 : new InstantCameraView(context, delegate, resourcesProvider, isNewDesign);
     }

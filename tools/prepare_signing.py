@@ -81,4 +81,3 @@ exports = {
 with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as output:
     for name, value in exports.items():
         output.write(name + '=' + value + '\n')
-

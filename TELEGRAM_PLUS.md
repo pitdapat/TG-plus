@@ -1,5 +1,18 @@
 # Telegram Plus baseline
 
+## Current upstream integration
+
+The `telegram-plus` branch merges official Telegram 13.0.2 (7175), commit
+`f32ffeec763f0bdbf4bec25b52d654f77bff733d`, into the pre-embedding checkpoint.
+The embedding implementation is preserved separately on `embedding-search`.
+Camera conflicts retain single-camera startup, touch-down warmup, fixed 30 FPS
+preference, stabilization fallback and immediate camera-switch cuts. Upstream
+camera session/first-frame readiness checks and device-specific standby controls
+are retained. Clipboard formatting, permanent signing, personal API configuration,
+ARM64 packaging and compiler caching remain in place.
+
+## Original source recovery
+
 Recovered from the original Round_Camera_Prototype.zip source archive (version 11).
 Based on official Telegram f2908b14133bbffbf7ab04f641ecb5bfaf533242, version 12.10.6.
 The archive validation records APK SHA-256:
