@@ -39,7 +39,19 @@ Legacy signing password properties are removed. No private keystore is committed
 a different key cannot update the installed APK in place.
 
 For personal testing, leaving TELEGRAM_PLUS_API_ID and TELEGRAM_PLUS_API_HASH unset now uses the public sample credentials shipped with upstream Telegram at this source revision, matching the earlier APK. Supply both environment variables to override them with your own developer application. Partial, empty or invalid overrides are rejected. Telegram limits the bundled sample credentials to testing; use your own before distributing a client. TELEGRAM_PLUS_MAPS_API_KEY is optional. Bundled Maps, SafetyNet, OAuth and Huawei identifiers remain removed or replaced by environment configuration. Camera and clipboard behavior remains the recovered baseline.
-Firebase push was not configured in the original APK.
+Firebase push was not configured in the original APK. The standalone build now
+uses the client configuration for Firebase project `telegram-plus-bb466` and
+`org.patrick.tgplus.web`. Analytics remains disabled. The Google Services Gradle
+plugin generates the Firebase resources, and the existing Telegram encrypted
+push handler and token registration are retained. The messaging service is not
+exported. Server-side sending credentials must also be configured for the same
+personal Telegram API application at my.telegram.org; a successful APK build or
+FCM token alone does not prove end-to-end message delivery. Service-account
+private keys must never be included in this repository or APK.
+
+Validate on the phone with actual Telegram messages while the app is backgrounded,
+the screen is locked, and the device has been idle. Check Wi-Fi/mobile transitions
+and incoming calls, along with multi-account registration if used.
 The original README's local signing path is historical; use the variables above.
 
 The GitHub ARM64 debug build has passed full Android compilation, recovered Java checks, signature/package verification and artifact upload. Login configuration was subsequently restored to the original upstream public test defaults; phone login must be tested with the rebuilt APK.

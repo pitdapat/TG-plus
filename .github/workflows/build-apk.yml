@@ -12,6 +12,7 @@ on:
       - 'gradle.properties'
       - '.gitmodules'
       - 'tools/prepare_signing.py'
+      - 'tools/verify_firebase_apk.py'
       - '.github/workflows/build-apk.yml'
   workflow_dispatch:
 
@@ -141,6 +142,9 @@ jobs:
                   raise SystemExit('Upstream public test defaults were not compiled correctly.')
           print('Compiled Telegram API configuration verified; values are not logged.')
           PY
+
+      - name: Verify compiled Firebase configuration
+        run: python3 tools/verify_firebase_apk.py
 
       - name: Verify APK signature and package
         shell: bash

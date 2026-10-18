@@ -164,4 +164,5 @@ android {
     }
 }
 
-// Personal test build: Firebase push configuration is not supplied.
+// Client configuration only; Firebase service-account keys must never be bundled.
+apply plugin: 'com.google.gms.google-services'
