@@ -404,6 +404,7 @@ public class ApplicationLoader extends Application {
                 if (BuildVars.LOGS_ENABLED) {
                     FileLog.d("No valid " + getPushProvider().getLogTitle() + " APK found.");
                 }
+                PushDiagnostics.noPlayServices();
                 SharedConfig.pushStringStatus = "__NO_GOOGLE_PLAY_SERVICES__";
                 PushListenerController.sendRegistrationToServer(getPushProvider().getPushType(), null);
             }

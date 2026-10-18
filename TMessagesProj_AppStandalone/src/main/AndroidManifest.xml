@@ -3,7 +3,9 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:installLocation="auto">
 
-    <application android:name="org.telegram.messenger.ApplicationLoaderImpl" tools:replace="name">
+    <application android:name="org.telegram.messenger.ApplicationLoaderImpl" tools:replace="name"
+        android:fullBackupContent="@xml/tgplus_backup_rules"
+        android:dataExtractionRules="@xml/tgplus_data_extraction_rules">
         <service
             android:name="org.telegram.messenger.GoogleVoiceClientService"
             android:exported="true"

@@ -11535,4 +11535,44 @@
     <string name="CreateManagedBotUsernameBotLimit">This bot already has a Premium username. Remove it before adding another.</string>
     <string name="CreateManagedBotUsernameSuffixMissing">The username must end in %1$s.</string>
     <string name="CreateManagedBotUsernameCheckFailed">Couldn\'t check this username. Please try again.</string>
+
+    <!-- Local notification diagnostics -->
+    <string name="PushDiagTitle">Notification diagnostics</string>
+    <string name="PushDiagPrivacy">Local diagnostic status only. No Analytics, tokens, message contents or chat names are included. Telegram registration below is for the current account; received-push counters cover all accounts in this app.</string>
+    <string name="PushDiagYes">Yes</string>
+    <string name="PushDiagNo">No</string>
+    <string name="PushDiagNever">Not recorded</string>
+    <string name="PushDiagUnknown">Unknown</string>
+    <string name="PushDiagHigh">High</string>
+    <string name="PushDiagNormal">Normal</string>
+    <string name="PushDiagRequesting">Request in progress</string>
+    <string name="PushDiagReady">Available</string>
+    <string name="PushDiagAccepted">Accepted by Telegram</string>
+    <string name="PushDiagFailed">Failed</string>
+    <string name="PushDiagNoPlayServices">Google Play services unavailable</string>
+    <string name="PushDiagStale">Not verified for the current token</string>
+    <string name="PushDiagNotChecked">Not recorded — retry registration</string>
+    <string name="PushDiagToken">Firebase token</string>
+    <string name="PushDiagError">Error code</string>
+    <string name="PushDiagLastRequest">Last token request</string>
+    <string name="PushDiagLastResult">Last result</string>
+    <string name="PushDiagTelegram">Telegram push registration</string>
+    <string name="PushDiagLoggedIn">Telegram account signed in</string>
+    <string name="PushDiagStoredRegistration">Cached registration flag (not a delivery test)</string>
+    <string name="PushDiagReceivedCount">Firebase pushes received since clearing</string>
+    <string name="PushDiagLastReceived">Last push reached this app</string>
+    <string name="PushDiagSenderTime">Push sender timestamp</string>
+    <string name="PushDiagCallbackFinished">Latest push callback finished</string>
+    <string name="PushDiagPriority">Received priority</string>
+    <string name="PushDiagOriginalPriority">Original priority</string>
+    <string name="PushDiagPlayServices">Google Play services</string>
+    <string name="PushDiagNotificationsEnabled">Notifications allowed by Android</string>
+    <string name="PushDiagBackgroundRestricted">Background restricted by Android</string>
+    <string name="PushDiagBatteryExempt">Exempt from Android battery optimization</string>
+    <string name="PushDiagReceiptInfo">A received push confirms the Firebase callback ran. Callback completion does not prove a notification was displayed. Sender time depends on clock accuracy. These Android checks may not expose all manufacturer restrictions.</string>
+    <string name="PushDiagRetry">Retry push registration</string>
+    <string name="PushDiagAppSettings">Open app settings</string>
+    <string name="PushDiagCopy">Copy diagnostic status</string>
+    <string name="PushDiagClear">Clear diagnostic history</string>
+    <string name="PushDiagTestInfo">Tap Retry push registration, wait for the result, then leave the app and test a message from another account. Reopen this screen to inspect the last received push. Clearing history only removes these local diagnostics; it does not delete your token or unregister notifications.</string>
 </resources>

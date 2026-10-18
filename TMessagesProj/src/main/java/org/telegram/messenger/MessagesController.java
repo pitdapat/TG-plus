@@ -16198,7 +16198,16 @@ public class MessagesController extends BaseController implements NotificationCe
                 }
             }
         }
+        final long pushUserId = getUserConfig().getClientUserId();
+        if (pushType == PushListenerController.PUSH_TYPE_FIREBASE) {
+            PushDiagnostics.registrationStarted(currentAccount, pushUserId, regid);
+        }
         getConnectionsManager().sendRequest(req, (response, error) -> {
+            if (pushType == PushListenerController.PUSH_TYPE_FIREBASE) {
+                PushDiagnostics.registrationResult(currentAccount, pushUserId, regid,
+                        response instanceof TLRPC.TL_boolTrue, error == null ? 0 : error.code,
+                        error == null ? "UNEXPECTED_RESPONSE" : error.text);
+            }
             if (response instanceof TLRPC.TL_boolTrue) {
                 if (BuildVars.LOGS_ENABLED) {
                     FileLog.d("account " + currentAccount + " registered for push, push type: " + pushType);

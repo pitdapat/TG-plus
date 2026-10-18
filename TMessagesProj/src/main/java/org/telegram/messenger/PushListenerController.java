@@ -1815,7 +1815,7 @@ public class PushListenerController {
             String currentPushString = SharedConfig.pushString;
             if (!TextUtils.isEmpty(currentPushString)) {
                 if (BuildVars.DEBUG_PRIVATE_VERSION && BuildVars.LOGS_ENABLED) {
-                    FileLog.d("FCM regId = " + currentPushString);
+                    FileLog.d("FCM token already available");
                 }
             } else {
                 if (BuildVars.LOGS_ENABLED) {
@@ -1823,6 +1823,7 @@ public class PushListenerController {
                 }
             }
             Utilities.globalQueue.postRunnable(() -> {
+                PushDiagnostics.tokenRequestStarted();
                 try {
                     SharedConfig.pushStringGetTimeStart = SystemClock.elapsedRealtime();
                     FirebaseApp.initializeApp(ApplicationLoader.applicationContext);
@@ -1830,6 +1831,7 @@ public class PushListenerController {
                             .addOnCompleteListener(task -> {
                                 SharedConfig.pushStringGetTimeEnd = SystemClock.elapsedRealtime();
                                 if (!task.isSuccessful()) {
+                                    PushDiagnostics.tokenFailed(task.getException());
                                     if (BuildVars.LOGS_ENABLED) {
                                         FileLog.d("Failed to get regid");
                                     }
@@ -1838,11 +1840,13 @@ public class PushListenerController {
                                     return;
                                 }
                                 String token = task.getResult();
+                                PushDiagnostics.tokenReady(token);
                                 if (!TextUtils.isEmpty(token)) {
                                     PushListenerController.sendRegistrationToServer(getPushType(), token);
                                 }
                             });
                 } catch (Throwable e) {
+                    PushDiagnostics.tokenFailed(e);
                     FileLog.e(e);
                 }
             });
