@@ -52,6 +52,14 @@ private keys must never be included in this repository or APK.
 Validate on the phone with actual Telegram messages while the app is backgrounded,
 the screen is locked, and the device has been idle. Check Wi-Fi/mobile transitions
 and incoming calls, along with multi-account registration if used.
+
+Each incoming push now owns its completion latch. Repeated or overlapping
+callbacks cannot reuse an already completed latch or release another push's
+waiter. Invalid OAuth push payloads release their own waiter before returning;
+decryption recovery releases it even if network fallback throws. Interrupted
+callback waits restore the thread's interrupt flag. These changes preserve the
+existing encrypted-push format and notification queue. They do not control
+Telegram's outgoing FCM priority or establish real-device delivery latency.
 The original README's local signing path is historical; use the variables above.
 
 The GitHub ARM64 debug build has passed full Android compilation, recovered Java checks, signature/package verification and artifact upload. Login configuration was subsequently restored to the original upstream public test defaults; phone login must be tested with the rebuilt APK.
