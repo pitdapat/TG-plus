@@ -654,7 +654,7 @@ public class TopicsController extends BaseController {
         if (topics != null) {
             for (int i = 0; i < topics.size(); i++) {
                 TLRPC.TL_forumTopic topic = topics.get(i);
-                countsTmp[0] += topic.unread_count > 0 ? 1 : 0;
+                countsTmp[0] += topic.unread_count;
                 countsTmp[1] += topic.unread_mentions_count > 0 ? 1 : 0;
                 countsTmp[2] += topic.unread_reactions_count > 0 ? 1 : 0;
                 if (!getMessagesController().isDialogMuted(-chatId, topic.id)) {
