@@ -10,7 +10,6 @@ import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.content.Context;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Matrix;
@@ -664,7 +663,6 @@ public final class InstantCameraView2 extends InstantCameraViewBase {
             lastVisibleDurationMs = Math.max(lastVisibleDurationMs, info.getRecordedDurationMs());
             if (info.getState() == RoundVideoSession.State.RECORDING) {
                 stopHeavyOperations();
-                hideInitialPlaceholder();
                 setRecordingUiFrameClockActive(true);
                 updateRecordingUiFrame();
                 if (!startedNotificationSent) {
@@ -1097,18 +1095,7 @@ public final class InstantCameraView2 extends InstantCameraViewBase {
 
     private void showInitialPlaceholder() {
         if (drawInitialPlaceholder) return;
-        if (lastBitmap == null) {
-            try {
-                File file = new File(ApplicationLoader.getFilesDirFixed(), "icthumb.jpg");
-                lastBitmap = BitmapFactory.decodeFile(file.getAbsolutePath());
-            } catch (Throwable ignore) {
-            }
-        }
-        if (lastBitmap != null) {
-            textureOverlayView.setImageBitmap(lastBitmap);
-        } else {
-            textureOverlayView.setImageResource(R.drawable.icplaceholder);
-        }
+        textureOverlayView.setImageDrawable(new android.graphics.drawable.ColorDrawable(0xff202124));
         drawInitialPlaceholder = true;
         textureOverlayView.animate().cancel();
         textureOverlayView.setAlpha(1f);
