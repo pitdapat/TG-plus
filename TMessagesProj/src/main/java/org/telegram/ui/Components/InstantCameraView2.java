@@ -1095,7 +1095,10 @@ public final class InstantCameraView2 extends InstantCameraViewBase {
 
     private void showInitialPlaceholder() {
         if (drawInitialPlaceholder) return;
-        textureOverlayView.setImageDrawable(new android.graphics.drawable.ColorDrawable(0xff202124));
+        android.graphics.drawable.GradientDrawable placeholder = new android.graphics.drawable.GradientDrawable();
+        placeholder.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        placeholder.setColor(0xff202124);
+        textureOverlayView.setImageDrawable(placeholder);
         drawInitialPlaceholder = true;
         textureOverlayView.animate().cancel();
         textureOverlayView.setAlpha(1f);

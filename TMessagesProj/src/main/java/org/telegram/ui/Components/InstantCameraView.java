@@ -397,6 +397,13 @@ public class InstantCameraView extends InstantCameraViewBase implements Notifica
                 }
             }
         };
+        textureOverlayView.setOutlineProvider(new ViewOutlineProvider() {
+            @Override
+            public void getOutline(View view, Outline outline) {
+                outline.setOval(0, 0, view.getWidth(), view.getHeight());
+            }
+        });
+        textureOverlayView.setClipToOutline(true);
         addView(textureOverlayView, new LayoutParams(AndroidUtilities.roundPlayingMessageSize, AndroidUtilities.roundPlayingMessageSize, Gravity.CENTER));
 
         setVisibilityFromPause = false;
@@ -704,7 +711,10 @@ public class InstantCameraView extends InstantCameraViewBase implements Notifica
         textureOverlayView.setAlpha(1.0f);
         textureOverlayView.invalidate();
         // A previous camera frame can have a stale colour cast or show an old scene.
-        textureOverlayView.setImageDrawable(new android.graphics.drawable.ColorDrawable(0xff202124));
+        android.graphics.drawable.GradientDrawable placeholder = new android.graphics.drawable.GradientDrawable();
+        placeholder.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        placeholder.setColor(0xff202124);
+        textureOverlayView.setImageDrawable(placeholder);
         cameraReady = false;
         previewShown = false;
         previewGeneration++;
