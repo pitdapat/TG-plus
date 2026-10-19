@@ -151,7 +151,6 @@ final class RoundVideoCameraController {
     private String cameraId;
     private CameraCharacteristics characteristics;
     private boolean initialPreviewFrameDelivered;
-    private volatile org.telegram.messenger.camera.RoundCameraStartupGate startupGate;
     private boolean stabilizationControlsRejected;
     private Size previewSize;
     private volatile Size recordingSize;
@@ -303,8 +302,6 @@ final class RoundVideoCameraController {
         active = true;
         stopping = false;
         commonStartRecorder = null;
-        initialPreviewFrameDelivered = false;
-        startupGate = null;
         previewTransformEnabled = true;
         segmentStartedNs = SystemClock.elapsedRealtimeNanos();
         resetPreviewFrameMetrics();
@@ -454,10 +451,7 @@ final class RoundVideoCameraController {
                     }
                     long now = SystemClock.elapsedRealtimeNanos();
                     long timestampNs = surfaceTexture.getTimestamp();
-                    org.telegram.messenger.camera.RoundCameraStartupGate gate = startupGate;
-                    if (active && timestampNs > 0 && !initialPreviewFrameDelivered
-                            && gate != null && (glPreviewEnabled ? gate.isReleased()
-                            : gate.allowFrame(timestampNs, SystemClock.elapsedRealtime()))) {
+                    if (active && timestampNs > 0 && !initialPreviewFrameDelivered) {
                         initialPreviewFrameDelivered = true;
                         callback.onCameraPreviewFirstFrame();
                     }
@@ -572,7 +566,6 @@ final class RoundVideoCameraController {
     }
 
     private void createRecordingPipeline() throws IOException {
-        startupGate = new org.telegram.messenger.camera.RoundCameraStartupGate();
         glPreviewEnabled = dualActiveMode;
         recorder = new RoundVideoCodecRecorder(
                 writer,
@@ -598,7 +591,6 @@ final class RoundVideoCameraController {
                 recorder,
                 callback::onError
         );
-        glProcessor.setStartupGate(startupGate);
         glProcessor.setFirstFrameListener(() -> {
             Handler handler = cameraHandler;
             if (handler != null) handler.post(this::startRecordingAfterFirstFrame);
@@ -1734,10 +1726,6 @@ final class RoundVideoCameraController {
                     if (session != captureSession) return;
                     verifyTorchResult(request, result);
                     Long timestampNs = result.get(CaptureResult.SENSOR_TIMESTAMP);
-                    org.telegram.messenger.camera.RoundCameraStartupGate gate = startupGate;
-                    if (gate != null && timestampNs != null) gate.onCaptureResult(timestampNs,
-                            result.get(CaptureResult.CONTROL_AE_STATE),
-                            result.get(CaptureResult.CONTROL_AWB_STATE));
                     if (timestampNs == null || timestampNs <= captureFpsLastTimestampNs) return;
                     long callbackNs = SystemClock.elapsedRealtimeNanos();
                     if (captureFpsFirstTimestampNs == 0L) {

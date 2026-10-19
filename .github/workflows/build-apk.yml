@@ -93,12 +93,11 @@ jobs:
           mkdir -p "$RUNNER_TEMP/tgplus-tests"
           javac -d "$RUNNER_TEMP/tgplus-tests" \
             TMessagesProj/src/main/java/org/telegram/messenger/camera/RoundCameraWarmup.java \
-            TMessagesProj/src/main/java/org/telegram/messenger/camera/RoundCameraStartupGate.java \
             TMessagesProj/src/main/java/org/telegram/messenger/camera/RoundFpsSelector.java \
             TMessagesProj/src/main/java/org/telegram/messenger/camera/RoundStreamSelector.java \
             TMessagesProj/src/main/java/org/telegram/messenger/utils/FormattingMarkers.java \
             tests/telegram-plus/*Test.java
-          for test in FormattingMarkersTest RoundCameraWarmupTest RoundCameraStartupGateTest RoundFpsSelectorTest RoundStreamSelectorTest; do
+          for test in FormattingMarkersTest RoundCameraWarmupTest RoundFpsSelectorTest RoundStreamSelectorTest; do
             java -cp "$RUNNER_TEMP/tgplus-tests" "$test"
           done
 

@@ -86,23 +86,6 @@ public class Camera2Session {
 
     private long lastTime;
 
-    private final RoundCameraStartupGate roundStartupGate = new RoundCameraStartupGate();
-    private final CameraCaptureSession.CaptureCallback roundStartupCallback = new CameraCaptureSession.CaptureCallback() {
-        @Override
-        public void onCaptureCompleted(@NonNull CameraCaptureSession session,
-                @NonNull CaptureRequest request, @NonNull TotalCaptureResult result) {
-            if (session != captureSession || isClosed) return;
-            Long timestamp = result.get(CaptureResult.SENSOR_TIMESTAMP);
-            if (timestamp != null) roundStartupGate.onCaptureResult(timestamp,
-                    result.get(CaptureResult.CONTROL_AE_STATE),
-                    result.get(CaptureResult.CONTROL_AWB_STATE));
-        }
-    };
-
-    public boolean isRoundStartupFrameReady(long timestampNs) {
-        return roundStartupGate.allowFrame(timestampNs, android.os.SystemClock.elapsedRealtime());
-    }
-
     public static Camera2Session create(boolean front, int viewWidth, int viewHeight) {
         return create(front, viewWidth, viewHeight, false);
     }
@@ -658,7 +641,7 @@ public class Camera2Session {
                         captureRequestBuilder.set(CaptureRequest.CONTROL_ZOOM_RATIO, currentZoom);
                     }
                     RoundCameraPolicy.applySupportedControls(captureRequestBuilder, cameraCharacteristics);
-                    captureSession.setRepeatingRequest(captureRequestBuilder.build(), roundStartupCallback, handler);
+                    captureSession.setRepeatingRequest(captureRequestBuilder.build(), null, handler);
                 } catch (IllegalArgumentException | android.hardware.camera2.CameraAccessException rejected) {
                     FileLog.e("Round-camera controls rejected; retrying baseline", rejected);
                     if (useZoomRatio) {
@@ -667,7 +650,7 @@ public class Camera2Session {
                         final Float fallbackMax = cameraCharacteristics.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM);
                         maxZoom = fallbackMax == null ? 1f : Math.max(1f, fallbackMax);
                     }
-                    captureSession.setRepeatingRequest(baseline, roundStartupCallback, handler);
+                    captureSession.setRepeatingRequest(baseline, null, handler);
                 }
             } else {
                 captureSession.setRepeatingRequest(captureRequestBuilder.build(), null, handler);

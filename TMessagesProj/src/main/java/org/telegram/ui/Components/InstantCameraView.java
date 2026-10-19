@@ -22,6 +22,7 @@ import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothProfile;
 import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.ImageFormat;
@@ -710,11 +711,19 @@ public class InstantCameraView extends InstantCameraViewBase implements Notifica
 
         textureOverlayView.setAlpha(1.0f);
         textureOverlayView.invalidate();
-        // A previous camera frame can have a stale colour cast or show an old scene.
-        android.graphics.drawable.GradientDrawable placeholder = new android.graphics.drawable.GradientDrawable();
-        placeholder.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-        placeholder.setColor(0xff202124);
-        textureOverlayView.setImageDrawable(placeholder);
+        if (lastBitmap == null) {
+            try {
+                File file = new File(ApplicationLoader.getFilesDirFixed(), "icthumb.jpg");
+                lastBitmap = BitmapFactory.decodeFile(file.getAbsolutePath());
+            } catch (Throwable ignore) {
+
+            }
+        }
+        if (lastBitmap != null) {
+            textureOverlayView.setImageBitmap(lastBitmap);
+        } else {
+            textureOverlayView.setImageResource(R.drawable.icplaceholder);
+        }
         cameraReady = false;
         previewShown = false;
         previewGeneration++;
@@ -1508,8 +1517,6 @@ public class InstantCameraView extends InstantCameraViewBase implements Notifica
     private volatile int surfaceIndex;
 
     public class CameraGLThread extends DispatchQueue {
-        private final org.telegram.messenger.camera.RoundCameraStartupGate startupGate =
-                new org.telegram.messenger.camera.RoundCameraStartupGate();
 
         private final static int EGL_CONTEXT_CLIENT_VERSION = 0x3098;
         private final static int EGL_OPENGL_ES2_BIT = 4;
@@ -1841,15 +1848,6 @@ public class InstantCameraView extends InstantCameraViewBase implements Notifica
                     || surfaceIndex == 1 && updateTexImage2);
 
             if (!previewShown && cameraSurface[surfaceIndex].getTimestamp() <= 0) return;
-
-            // Drain early textures, but do not display or encode unsettled startup frames.
-            if (!recording) {
-                long timestamp = cameraSurface[surfaceIndex].getTimestamp();
-                boolean ready = currentSession instanceof Camera2Session
-                        ? ((Camera2Session) currentSession).isRoundStartupFrameReady(timestamp)
-                        : startupGate.allowFrame(timestamp, android.os.SystemClock.elapsedRealtime());
-                if (!ready) return;
-            }
 
             boolean captureFirstFrameThumb = false;
             if (!recording) {

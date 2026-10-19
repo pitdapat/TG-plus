@@ -125,7 +125,6 @@ final class RoundVideoGlProcessor {
     private volatile Runnable firstFrameListener;
     private Runnable dualSwitchFrameListener;
     private boolean firstFrameReported;
-    private org.telegram.messenger.camera.RoundCameraStartupGate startupGate;
     private volatile RuntimeException initializationError;
 
     private final Runnable switchFrameRunnable = this::drawSwitchFrame;
@@ -636,11 +635,6 @@ final class RoundVideoGlProcessor {
         );
     }
 
-    public void setStartupGate(org.telegram.messenger.camera.RoundCameraStartupGate gate) {
-        // Installed before start() launches the GL thread.
-        startupGate = gate;
-    }
-
     private void drawFrame(boolean secondary) {
         SurfaceTexture surfaceTexture = secondary
                 ? secondaryInputSurfaceTexture
@@ -667,8 +661,6 @@ final class RoundVideoGlProcessor {
                         + ", elapsedMs=" + elapsedMs(glStartedNs));
             }
             if (secondary != secondaryInputActive) return;
-            if (!firstFrameReported && startupGate != null
-                    && !startupGate.allowFrame(timestamp, SystemClock.elapsedRealtime())) return;
             if (!recordingStarted) {
                 renderPreviewAndNotify(cameraTexture, matrix);
                 Runnable listener = firstFrameListener;
