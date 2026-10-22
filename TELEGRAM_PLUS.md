@@ -2,14 +2,24 @@
 
 ## Current upstream integration
 
-The `telegram-plus` branch merges official Telegram 13.0.2 (7175), commit
-`f32ffeec763f0bdbf4bec25b52d654f77bff733d`, into the pre-embedding checkpoint.
+The `telegram-plus` branch merges official Telegram 13.0.3 (7183), commit
+`0aae959806c57be8ad457980f2a5c6277ff18635`, into the pre-embedding checkpoint.
 The embedding implementation is preserved separately on `embedding-search`.
 Camera conflicts retain single-camera startup, touch-down warmup, fixed 30 FPS
 preference, stabilization fallback and immediate camera-switch cuts. Upstream
 camera session/first-frame readiness checks and device-specific standby controls
 are retained. Clipboard formatting, permanent signing, personal API configuration,
 ARM64 packaging and compiler caching remain in place.
+
+The 13.0.3 integration includes the upstream voice-message recorder and RNNoise
+support, call-reflector candidate validation, bot API compatibility, external
+sharing fixes, persistent bot-keyboard Back handling, browser preferences and
+login error improvements. Its pinned `tgcalls` and media submodules move together
+with the source update. The round-video package move to `utils.recorder.round`
+retains our camera changes, including first-frame startup without the removed
+metering gate or gray settling cover. Upstream's final 13.0.3 gift-reordering
+behavior is retained; the earlier PR #2177 is not reapplied independently.
+Open upstream PRs are excluded from this integration.
 
 ## Original source recovery
 
