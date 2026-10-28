@@ -2,8 +2,8 @@
 
 ## Current upstream integration
 
-The `telegram-plus` branch merges official Telegram 13.0.3 (7183), commit
-`0aae959806c57be8ad457980f2a5c6277ff18635`, into the pre-embedding checkpoint.
+The `telegram-plus` branch merges official Telegram 13.1.1 (7237), commit
+`3de37c8cfb039452be7398909461da6288babf15`, into the pre-embedding checkpoint.
 The embedding implementation is preserved separately on `embedding-search`.
 Camera conflicts retain single-camera startup, touch-down warmup, fixed 30 FPS
 preference, stabilization fallback and immediate camera-switch cuts. Upstream
@@ -20,6 +20,16 @@ retains our camera changes, including first-frame startup without the removed
 metering gate or gray settling cover. Upstream's final 13.0.3 gift-reordering
 behavior is retained; the earlier PR #2177 is not reapplied independently.
 Open upstream PRs are excluded from this integration.
+
+The 13.1.1 integration includes voice-recorder lifecycle, scheduling, capture and
+Opus finalization fixes, protected-content copy/save checks, scoped-storage
+multi-file sharing, bot-forum topic creation and updated call transport with its
+pinned `tgcalls` submodule. Native build targets move to Android API 23 together.
+Camera implementations and formatting-marker conversion remain intact; copying
+is still subject to upstream protected-content restrictions. The string-resource
+merge retains both local notification diagnostics and new upstream QR/wallet
+strings. Package identity, signing, Firebase configuration and ARM64 packaging
+remain the Telegram Plus configuration.
 
 ## Original source recovery
 
