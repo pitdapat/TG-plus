@@ -32348,7 +32348,9 @@ public class ChatActivity extends BaseFragment implements
                                 if (selectedObject == null || i >= options.size() || getParentActivity() == null) {
                                     return;
                                 }
-                                closeMenu(false);
+                                // No sheet opens here, so close the menu together with its dim overlay;
+                                // closeMenu(false) would leave the overlay blocking all touches.
+                                closeMenu();
                                 if (inlineShown) {
                                     TgPlusInlineTranslations.hide(inlineTarget);
                                 } else {
