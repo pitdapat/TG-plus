@@ -36,6 +36,13 @@ public final class EnumSetting<T extends Enum<T>> {
         SettingsPreferences.get().edit().putString(name, value.name()).apply();
     }
 
+    /** Removes the stored value so the default applies again. */
+    public synchronized void reset() {
+        value = defaultValue;
+        loaded = true;
+        SettingsPreferences.get().edit().remove(name).apply();
+    }
+
     @NonNull
     private T readValue() {
         String storedValue = SettingsPreferences.get().getString(name, defaultValue.name());

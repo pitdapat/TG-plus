@@ -11306,6 +11306,9 @@
     <string name="RoundVideoDiagnosticsHeader">Diagnostics</string>
     <string name="RoundVideoDiagnostics">Camera test</string>
     <string name="RoundVideoDiagnosticsRun">Run camera test</string>
+    <string name="RoundVideoResetDefaults">Reset to defaults</string>
+    <string name="RoundVideoResetDefaultsConfirm">Restore all round video options to their defaults? The recorder you chose (Camera2 or old) stays the same.</string>
+    <string name="RoundVideoResetDefaultsAction">Reset</string>
     <string name="RoundVideoDiagnosticsInfo">Tests the front and back cameras and creates a report you can share. Works with either recorder.</string>
     <string name="RoundVideoDiagnosticsInstructions">Run this where you usually record bubbles, for example indoors at your normal lighting. Hold the phone still for about 30 seconds while both cameras are tested. To include the recorder log, record a short bubble first (then cancel it) and run the test after.</string>
     <string name="RoundVideoDiagnosticsRunning">Testing… keep the phone still</string>

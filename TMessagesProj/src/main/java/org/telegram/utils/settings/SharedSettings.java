@@ -42,6 +42,20 @@ public final class SharedSettings {
     public static final EnumSetting<RoundVideoSession.CameraFacing> roundVideoLastCamera =
         EnumSetting.of("round_video_last_camera", RoundVideoSession.CameraFacing.FRONT);
 
+    /**
+     * Restores every round-video option to its default. The recorder choice
+     * ("Use Camera2 recorder") and the last-used camera are kept.
+     */
+    public static void resetRoundVideoSettings() {
+        roundVideoOutputResolution.reset();
+        roundVideoCameraResolution.reset();
+        roundVideoFrameRate.reset();
+        roundVideoVideoBitrate.reset();
+        roundVideoMotionPriorityLevel.reset();
+        roundVideoStabilization.reset();
+        roundVideoComposition.reset();
+    }
+
     private SharedSettings() {
     }
 }

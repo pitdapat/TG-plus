@@ -43,11 +43,12 @@ public class RoundVideoSettingsActivity extends BaseFragment {
     private static final int ROW_GENERAL_INFO = 8;
     private static final int ROW_DIAGNOSTICS_HEADER = 9;
     private static final int ROW_DIAGNOSTICS = 10;
-    private static final int ROW_DIAGNOSTICS_INFO = 11;
-    private static final int ROW_COMPOSITION_HEADER = 12;
-    private static final int ROW_COMPOSITION = 13;
-    private static final int ROW_COMPOSITION_INFO = 14;
-    private static final int ROW_COUNT = BuildConfig.DEBUG_PRIVATE_VERSION ? 15 : 12;
+    private static final int ROW_RESET = 11;
+    private static final int ROW_DIAGNOSTICS_INFO = 12;
+    private static final int ROW_COMPOSITION_HEADER = 13;
+    private static final int ROW_COMPOSITION = 14;
+    private static final int ROW_COMPOSITION_INFO = 15;
+    private static final int ROW_COUNT = BuildConfig.DEBUG_PRIVATE_VERSION ? 16 : 13;
 
     private static final int[] BITRATES = {
             750_000,
@@ -99,6 +100,23 @@ public class RoundVideoSettingsActivity extends BaseFragment {
         }
         if (position == ROW_DIAGNOSTICS) {
             presentFragment(new RoundVideoDiagnosticsActivity());
+            return;
+        }
+        if (position == ROW_RESET) {
+            AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+            builder.setTitle(LocaleController.getString(R.string.RoundVideoResetDefaults));
+            builder.setMessage(LocaleController.getString(R.string.RoundVideoResetDefaultsConfirm));
+            builder.setPositiveButton(LocaleController.getString(R.string.RoundVideoResetDefaultsAction), (dialog, which) -> {
+                SharedSettings.resetRoundVideoSettings();
+                adapter.notifyDataSetChanged();
+            });
+            builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+            AlertDialog dialog = builder.create();
+            showDialog(dialog);
+            View button = dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE);
+            if (button instanceof android.widget.TextView) {
+                ((android.widget.TextView) button).setTextColor(Theme.getColor(Theme.key_text_RedBold));
+            }
             return;
         }
         if (!SharedSettings.roundVideoCamera2Enabled.get()) {
@@ -220,7 +238,7 @@ public class RoundVideoSettingsActivity extends BaseFragment {
         @Override
         public boolean isEnabled(RecyclerView.ViewHolder holder) {
             int position = holder.getAdapterPosition();
-            if (position == ROW_ENABLED || position == ROW_DIAGNOSTICS) {
+            if (position == ROW_ENABLED || position == ROW_DIAGNOSTICS || position == ROW_RESET) {
                 return true;
             }
             if (!SharedSettings.roundVideoCamera2Enabled.get()) {
@@ -293,9 +311,14 @@ public class RoundVideoSettingsActivity extends BaseFragment {
                 }
             } else if (holder.getItemViewType() == TYPE_VALUE) {
                 TextSettingsCell cell = (TextSettingsCell) holder.itemView;
-                cell.setEnabled(enabled || position == ROW_DIAGNOSTICS);
+                cell.setEnabled(enabled || position == ROW_DIAGNOSTICS || position == ROW_RESET);
+                cell.setTextColor(Theme.getColor(position == ROW_RESET
+                        ? Theme.key_text_RedRegular
+                        : Theme.key_windowBackgroundWhiteBlackText));
                 if (position == ROW_DIAGNOSTICS) {
-                    cell.setText(LocaleController.getString(R.string.RoundVideoDiagnosticsRun), false);
+                    cell.setText(LocaleController.getString(R.string.RoundVideoDiagnosticsRun), true);
+                } else if (position == ROW_RESET) {
+                    cell.setText(LocaleController.getString(R.string.RoundVideoResetDefaults), false);
                 } else if (position == ROW_MOTION_PRIORITY) {
                     cell.setTextAndValue(
                             LocaleController.getString(R.string.RoundVideoMotionPriority),
