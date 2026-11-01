@@ -11312,9 +11312,9 @@
     <string name="RoundVideoDiagnosticsInfo">Tests the front and back cameras and creates a report you can share. Works with either recorder.</string>
     <string name="RoundVideoDiagnosticsInstructions">Run this where you usually record bubbles, for example indoors at your normal lighting. Hold the phone still for about 30 seconds while both cameras are tested. To include the recorder log, record a short bubble first (then cancel it) and run the test after.</string>
     <string name="RoundVideoDiagnosticsRunning">Testing… keep the phone still</string>
-    <string name="RoundVideoDiagnosticsDone">Done. Share the report or copy it.</string>
-    <string name="RoundVideoDiagnosticsShare">Share report</string>
-    <string name="RoundVideoDiagnosticsCopy">Copy</string>
+    <string name="RoundVideoDiagnosticsDone">Done. Copy the short report and paste it, or share the full one as a file.</string>
+    <string name="RoundVideoDiagnosticsShare">Share full report</string>
+    <string name="RoundVideoDiagnosticsCopy">Copy short report</string>
     <string name="RoundVideoDiagnosticsCopied">Report copied</string>
     <string name="RoundVideoDiagnosticsNoPermission">Camera permission is needed to run the test.</string>
     <string name="RoundVideoGeneralInfo">60 FPS is used only when both front and rear cameras support it. Otherwise recording falls back to 30 FPS.</string>

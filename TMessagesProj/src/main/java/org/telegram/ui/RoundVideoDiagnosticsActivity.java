@@ -49,6 +49,7 @@ public class RoundVideoDiagnosticsActivity extends BaseFragment {
     private TextView reportView;
     private RoundVideoCameraProbe probe;
     private String report;
+    private String shortReport;
 
     @Override
     public View createView(Context context) {
@@ -94,7 +95,7 @@ public class RoundVideoDiagnosticsActivity extends BaseFragment {
         shareButton.setOnClickListener(v -> shareReport());
         copyButton = createButton(context, LocaleController.getString(R.string.RoundVideoDiagnosticsCopy));
         copyButton.setOnClickListener(v -> {
-            if (report != null && AndroidUtilities.addToClipboard(report)) {
+            if (shortReport != null && AndroidUtilities.addToClipboard(shortReport)) {
                 Toast.makeText(getParentActivity(),
                         LocaleController.getString(R.string.RoundVideoDiagnosticsCopied),
                         Toast.LENGTH_SHORT).show();
@@ -165,6 +166,7 @@ public class RoundVideoDiagnosticsActivity extends BaseFragment {
             public void onFinished(String text) {
                 probe = null;
                 report = text;
+                shortReport = RoundVideoCameraProbe.toShortReport(text);
                 Activity a = getParentActivity();
                 if (a != null) a.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                 if (fragmentView == null) return;
@@ -172,7 +174,7 @@ public class RoundVideoDiagnosticsActivity extends BaseFragment {
                 runButton.setAlpha(1f);
                 setActionsEnabled(true);
                 statusView.setText(LocaleController.getString(R.string.RoundVideoDiagnosticsDone));
-                reportView.setText(text);
+                reportView.setText(shortReport);
             }
         });
         probe.start();
@@ -204,6 +206,7 @@ public class RoundVideoDiagnosticsActivity extends BaseFragment {
             intent.setType("text/plain");
             intent.putExtra(Intent.EXTRA_STREAM, uri);
             intent.putExtra(Intent.EXTRA_SUBJECT, "Round video camera report");
+            intent.putExtra(Intent.EXTRA_TEXT, shortReport);
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             activity.startActivity(Intent.createChooser(intent,
                     LocaleController.getString(R.string.RoundVideoDiagnosticsShare)));

@@ -91,6 +91,83 @@ public final class RoundVideoCameraProbe {
         cancelled = true;
     }
 
+    /** Log lines that repeat on every bubble and say nothing new; left out of the short report. */
+    private static final String[] NOISY_LOG_MARKERS = {
+            "camera capabilities:",
+            "camera candidate accepted:",
+            "fps selection:",
+            "audio output format:",
+            "video output format:",
+            "first video sample prepared:",
+            "audio encoder configure:",
+            "audio timestamp alignment:",
+            "first audio input:",
+            "encoder swap:",
+            "codec latency:",
+            "GL initialized:",
+    };
+    private static final int SHORT_LOG_LINES = 60;
+    private static final int SHORT_LINE_LENGTH = 220;
+
+    /**
+     * Short version of a full report that fits a single copy/paste: drops per-size lists and
+     * the cameras that weren't live-tested, and keeps only the useful tail of the recorder log.
+     */
+    @NonNull
+    public static String toShortReport(@NonNull String full) {
+        String[] lines = full.split("\n", -1);
+        java.util.HashSet<String> liveIds = new java.util.HashSet<>();
+        for (String line : lines) {
+            int at = line.indexOf("LIVE TEST: ");
+            int cam = line.indexOf("(camera ");
+            if (at >= 0 && cam > at) {
+                int end = line.indexOf(')', cam);
+                if (end > cam) liveIds.add(line.substring(cam + 8, end).trim());
+            }
+        }
+        StringBuilder out = new StringBuilder(full.length() / 3);
+        out.append("[SHORT REPORT - the full one can be shared as a file]\n");
+        boolean inSkippedCamera = false;
+        boolean inLog = false;
+        java.util.ArrayList<String> logLines = new java.util.ArrayList<>();
+        for (String line : lines) {
+            if (line.startsWith("--- camera ")) {
+                String id = line.substring(11, Math.max(11, line.indexOf(':')));
+                inSkippedCamera = !liveIds.contains(id.trim());
+                out.append(line).append(inSkippedCamera ? " (details in full report)" : "").append('\n');
+                continue;
+            }
+            if (line.startsWith("=====")) {
+                inSkippedCamera = false;
+                inLog = line.contains("RECENT RECORDER LOG");
+                if (inLog) continue;
+            }
+            if (inLog) {
+                if (line.startsWith("== END")) continue;
+                boolean noisy = false;
+                for (String marker : NOISY_LOG_MARKERS) {
+                    if (line.contains(marker)) {
+                        noisy = true;
+                        break;
+                    }
+                }
+                if (!noisy && !line.isEmpty()) {
+                    logLines.add(line.length() > SHORT_LINE_LENGTH
+                            ? line.substring(0, SHORT_LINE_LENGTH) + "…" : line);
+                }
+                continue;
+            }
+            if (inSkippedCamera || line.startsWith("previewSizes(maxFps)=")) continue;
+            out.append(line).append('\n');
+        }
+        out.append("\n===== RECORDER LOG (last ").append(Math.min(SHORT_LOG_LINES, logLines.size()))
+                .append(" of ").append(logLines.size()).append(" useful lines) =====\n");
+        int from = Math.max(0, logLines.size() - SHORT_LOG_LINES);
+        for (int i = from; i < logLines.size(); i++) out.append(logLines.get(i)).append('\n');
+        out.append("== END ==\n");
+        return out.toString();
+    }
+
     /** Recent round-video recorder log lines kept in memory. */
     @NonNull
     public static String getRecentRecorderLog() {
