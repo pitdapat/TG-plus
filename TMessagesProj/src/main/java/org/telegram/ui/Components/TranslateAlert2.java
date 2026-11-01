@@ -64,6 +64,9 @@ import org.telegram.messenger.SharedConfig;
 import org.telegram.messenger.TranslateController;
 import org.telegram.messenger.Utilities;
 import org.telegram.messenger.XiaomiUtilities;
+import org.telegram.messenger.tgplus.GeminiTranslator;
+import org.telegram.messenger.tgplus.TgPlusSettings;
+import org.telegram.ui.TgPlusTranslationErrors;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.tgnet.tl.TL_iv;
@@ -312,6 +315,17 @@ public class TranslateAlert2 extends BottomSheet implements NotificationCenter.N
             ConnectionsManager.getInstance(currentAccount).cancelRequest(reqId, true);
             reqId = null;
         }
+        if (geminiRequest != null) {
+            geminiRequest.cancel();
+            geminiRequest = null;
+        }
+
+        // Telegram Plus: plain-text translation through the user's Gemini key when selected.
+        // Rich messages and summaries keep Telegram's own server paths.
+        if (TgPlusSettings.isGeminiTranslationActive() && reqRichMessage == null && !reqSum && reqText != null) {
+            translateGemini();
+            return;
+        }
 
         final String method = MessagesController.getInstance(currentAccount).translationsManualEnabled;
         if ("alternative".equalsIgnoreCase(method)) {
@@ -448,6 +462,39 @@ public class TranslateAlert2 extends BottomSheet implements NotificationCenter.N
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.55 Safari/537.36"
     };
+    private GeminiTranslator.Request geminiRequest;
+
+    private void translateGemini() {
+        final String text = reqText == null ? "" : reqText.toString();
+        String to = toLanguage != null ? toLanguage : getToLanguage();
+        if (to != null) {
+            to = to.split("_")[0];
+        }
+        if ("nb".equals(to)) {
+            to = "no";
+        }
+        final String source = reqPeer != null ? "message" : "text";
+        geminiRequest = GeminiTranslator.translate(text, fromLanguage, normalizeLanguage(to), source, result -> {
+            geminiRequest = null;
+            if (isDismissed()) return;
+            if (result.ok()) {
+                firstTranslation = false;
+                textView.setText(preprocessText(result.text));
+                adapter.updateMainView(textViewContainer);
+                return;
+            }
+            String message = TgPlusTranslationErrors.text(result.error);
+            if (firstTranslation) {
+                dismiss();
+                NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.showBulletin, Bulletin.TYPE_ERROR, message);
+            } else {
+                BulletinFactory.of((FrameLayout) containerView, resourcesProvider).createErrorBulletin(message).show();
+                headerView.toLanguageTextView.setText(languageName(toLanguage = prevToLanguage));
+                adapter.updateMainView(textViewContainer);
+            }
+        });
+    }
+
     private void translateAlt() {
         final String text = reqText == null ? "" : reqText.toString();
         String _fromLng = fromLanguage;
@@ -1018,6 +1065,10 @@ public class TranslateAlert2 extends BottomSheet implements NotificationCenter.N
         if (reqId != null) {
             ConnectionsManager.getInstance(currentAccount).cancelRequest(reqId, true);
             reqId = null;
+        }
+        if (geminiRequest != null) {
+            geminiRequest.cancel();
+            geminiRequest = null;
         }
         super.dismissInternal();
     }

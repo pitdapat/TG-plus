@@ -153,7 +153,13 @@ Telegram Plus
 ├─ Translation
 │   ├─ Provider: Telegram / Gemini
 │   ├─ Gemini API key (masked)
-│   └─ Default target language
+│   ├─ Gemini model id (default gemini-3.5-flash-lite)
+│   ├─ Translate to (shared with Telegram's translate sheet)
+│   └─ Test translation
+├─ App updates
+│   ├─ Check for updates (GitHub Releases)
+│   ├─ Update channel (branch release to follow)
+│   └─ Check automatically once a day
 └─ Diagnostics
     ├─ Feature diagnostics (Section 7)
     └─ Notification diagnostics (existing PushDiagnosticsActivity, moved here)
@@ -164,6 +170,13 @@ Telegram Plus
 - All strings in `res/values/strings.xml` with a `TgPlus` prefix, following the existing `PushDiag*` naming.
 
 ---
+
+### 6.1 In-app updates
+- Source: `GET https://api.github.com/repos/<owner>/<repo>/releases`. The build workflow on `ci-build-any-branch` (PR #2) publishes one rolling release per branch, tagged `build-<branch>`, with one asset `TelegramPlus-<version>-<branch>-build<run>-<sha7>.apk`.
+- The installed build number, branch, commit and repository are compiled into `BuildConfig` from `GITHUB_RUN_NUMBER`, `GITHUB_REF_NAME`, `GITHUB_SHA` and `GITHUB_REPOSITORY`. Local builds have build number 0 and are never auto-prompted.
+- A release is newer when its run number is larger. The channel defaults to the branch the installed build came from.
+- Before install: size and SHA-256 (when GitHub reports a digest) must match, and the APK must have this app's package name and signing certificate. Android's installer then enforces the same signature.
+- Install uses the existing FileProvider and `REQUEST_INSTALL_PACKAGES`; if installing unknown apps is not allowed, the user is sent to the system setting first.
 
 ## 7. Feature diagnostics
 

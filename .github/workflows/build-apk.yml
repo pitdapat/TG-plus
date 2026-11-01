@@ -96,8 +96,11 @@ jobs:
             TMessagesProj/src/main/java/org/telegram/messenger/camera/RoundFpsSelector.java \
             TMessagesProj/src/main/java/org/telegram/messenger/camera/RoundStreamSelector.java \
             TMessagesProj/src/main/java/org/telegram/messenger/utils/FormattingMarkers.java \
+            TMessagesProj/src/main/java/org/telegram/messenger/tgplus/DiagnosticsLog.java \
+            TMessagesProj/src/main/java/org/telegram/messenger/tgplus/DiagnosticsReport.java \
+            TMessagesProj/src/main/java/org/telegram/messenger/tgplus/UpdatePolicy.java \
             tests/telegram-plus/*Test.java
-          for test in FormattingMarkersTest RoundCameraWarmupTest RoundFpsSelectorTest RoundStreamSelectorTest; do
+          for test in FormattingMarkersTest RoundCameraWarmupTest RoundFpsSelectorTest RoundStreamSelectorTest TgPlusDiagnosticsTest TgPlusUpdatePolicyTest; do
             java -cp "$RUNNER_TEMP/tgplus-tests" "$test"
           done
 

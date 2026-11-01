@@ -154,6 +154,25 @@ android {
         }
         buildConfigField "int", "TELEGRAM_PLUS_API_ID", plusApiId
         buildConfigField "String", "TELEGRAM_PLUS_API_HASH", groovy.json.JsonOutput.toJson(plusApiHash)
+        // In-app updates compare against GitHub Releases published by the build workflow.
+        // Local builds get build number 0, branch "" and sha "".
+        def plusBuildNumber = System.getenv("GITHUB_RUN_NUMBER") ?: "0"
+        if (!(plusBuildNumber ==~ /[0-9]{1,9}/)) {
+            plusBuildNumber = "0"
+        }
+        def plusBranch = System.getenv("GITHUB_REF_NAME") ?: ""
+        def plusSha = System.getenv("GITHUB_SHA") ?: ""
+        if (!(plusSha ==~ /[0-9a-f]{40}/)) {
+            plusSha = ""
+        }
+        def plusRepository = System.getenv("GITHUB_REPOSITORY") ?: "pitdapat/TG-plus"
+        if (!(plusRepository ==~ /[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+/)) {
+            plusRepository = "pitdapat/TG-plus"
+        }
+        buildConfigField "int", "TELEGRAM_PLUS_BUILD_NUMBER", plusBuildNumber
+        buildConfigField "String", "TELEGRAM_PLUS_BRANCH", groovy.json.JsonOutput.toJson(plusBranch)
+        buildConfigField "String", "TELEGRAM_PLUS_GIT_SHA", groovy.json.JsonOutput.toJson(plusSha)
+        buildConfigField "String", "TELEGRAM_PLUS_REPOSITORY", groovy.json.JsonOutput.toJson(plusRepository)
         minSdkVersion 23
         ndk { abiFilters "arm64-v8a" }
         targetSdkVersion 36
