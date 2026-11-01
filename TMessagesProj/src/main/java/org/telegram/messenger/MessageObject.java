@@ -3671,6 +3671,42 @@ public class MessageObject {
 
     public boolean translated = false;
     public boolean summarized = false;
+
+    /** Telegram Plus: set by ChatActivity for messages shown in the chat list, so inline translations
+     *  appear only in chat bubbles (not in chat-list previews or reply quotes). */
+    public boolean tgplusInlineAllowed;
+    /** Telegram Plus: text shown under the original (translation or "Translating…"), or null. */
+    public String tgplusInlineApplied;
+    /** Telegram Plus: length of the original text inside messageText/caption, or -1. */
+    public int tgplusInlineOriginalLength = -1;
+
+    /** The text as sent, without a Telegram Plus inline translation appended. */
+    public static CharSequence stripInlineTranslation(MessageObject messageObject, CharSequence text) {
+        if (messageObject == null || text == null || messageObject.tgplusInlineApplied == null) return text;
+        int length = messageObject.tgplusInlineOriginalLength;
+        if (length < 0 || length + 1 >= text.length() || text.charAt(length + 1) != org.telegram.messenger.tgplus.TgPlusInlineTranslations.DIVIDER_CHAR) {
+            return text;
+        }
+        return text.subSequence(0, length);
+    }
+
+    private boolean applyInlineTranslation(String display) {
+        if (display.equals(tgplusInlineApplied) && !translated && !summarized) {
+            return false;
+        }
+        translated = false;
+        summarized = false;
+        tgplusInlineApplied = display;
+        tgplusInlineOriginalLength = messageOwner.message.length();
+        if (!isMediaEmpty() && !(getMedia(messageOwner) instanceof TLRPC.TL_messageMediaGame)) {
+            caption = null;
+            generateCaption();
+        } else {
+            applyNewText(org.telegram.messenger.tgplus.TgPlusInlineTranslations.compose(messageOwner.message, display));
+        }
+        return true;
+    }
+
     public boolean updateTranslation(boolean force) {
         boolean replyUpdated = replyMessageObject != null && replyMessageObject != this && replyMessageObject.updateTranslation(force);
         TranslateController translateController = MessagesController.getInstance(currentAccount).getTranslateController();
@@ -3729,9 +3765,22 @@ public class MessageObject {
                 generateCaption();
             }
             return replyUpdated || true;
-        } else if (messageOwner != null && (force || translated || summarized)) {
+        } else if (
+            messageOwner != null &&
+            tgplusInlineAllowed &&
+            type != TYPE_ARTICLE &&
+            org.telegram.messenger.tgplus.TgPlusInlineTranslations.getDisplay(this) != null
+        ) {
+            return applyInlineTranslation(org.telegram.messenger.tgplus.TgPlusInlineTranslations.getDisplay(this)) || replyUpdated;
+        } else if (messageOwner != null && (force || translated || summarized || tgplusInlineApplied != null)) {
             translated = false;
             summarized = false;
+            final boolean hadInline = tgplusInlineApplied != null;
+            tgplusInlineApplied = null;
+            tgplusInlineOriginalLength = -1;
+            if (hadInline) {
+                caption = null;
+            }
             if (type == TYPE_ARTICLE) {
                 generateLayout(null);
             } else {
@@ -3746,6 +3795,8 @@ public class MessageObject {
     public void applyNewText() {
         translated = false;
         summarized = false;
+        tgplusInlineApplied = null;
+        tgplusInlineOriginalLength = -1;
         applyNewText(messageOwner.message);
     }
 
@@ -3772,6 +3823,9 @@ public class MessageObject {
             replaceEmojiToLottieFrame(messageText, emojiOnly);
         }
         checkEmojiOnly(emojiOnly);
+        if (tgplusInlineApplied != null) {
+            messageText = org.telegram.messenger.tgplus.TgPlusInlineTranslations.decorate(messageText, tgplusInlineOriginalLength);
+        }
         generateLayout(fromUser);
         setType();
     }
@@ -7682,9 +7736,18 @@ public class MessageObject {
             captionSummarized = false;
             captionTranslated = false;
         }
+        // Telegram Plus: Gemini translation under the original caption.
+        final boolean inlineCaption = tgplusInlineApplied != null && !captionTranslated && !captionSummarized
+            && type != TYPE_STORY && text != null && text.length() == tgplusInlineOriginalLength;
+        if (inlineCaption) {
+            text = org.telegram.messenger.tgplus.TgPlusInlineTranslations.compose(text, tgplusInlineApplied);
+        }
         if (!isMediaEmpty() && !(getMedia(messageOwner) instanceof TLRPC.TL_messageMediaGame) && !TextUtils.isEmpty(text)) {
             caption = Emoji.replaceEmoji(text, Theme.chat_msgTextPaint.getFontMetricsInt(), false);
             caption = replaceAnimatedEmoji(caption, entities, Theme.chat_msgTextPaint.getFontMetricsInt(), false);
+            if (inlineCaption) {
+                caption = org.telegram.messenger.tgplus.TgPlusInlineTranslations.decorate(caption, tgplusInlineOriginalLength);
+            }
 
             boolean hasEntities;
             if (messageOwner.send_state != MESSAGE_SEND_STATE_SENT) {

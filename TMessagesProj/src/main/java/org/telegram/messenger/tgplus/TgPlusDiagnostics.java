@@ -207,6 +207,16 @@ public final class TgPlusDiagnostics {
         lines.add("Gemini translation active: " + (TgPlusSettings.isGeminiTranslationActive() ? "yes" : "no"));
         String toLanguage = org.telegram.ui.Components.TranslateAlert2.getToLanguage();
         lines.add("Translate-to language: " + toLanguage);
+        try {
+            org.telegram.messenger.MessagesController mc = org.telegram.messenger.MessagesController.getInstance(UserConfig.selectedAccount);
+            lines.add("Telegram translation allowed by server: " + (mc.isTranslationsManualEnabled() ? "yes" : "no"));
+            lines.add("Telegram Show Translate Button: " + (mc.getTranslateController().isContextTranslateEnabled() ? "on" : "off"));
+            ArrayList<String> restricted = new ArrayList<>(org.telegram.ui.RestrictedLanguagesSelectActivity.getRestrictedLanguages());
+            java.util.Collections.sort(restricted);
+            lines.add("Telegram Do Not Translate: " + (restricted.isEmpty() ? "none" : TextUtils.join(", ", restricted)));
+        } catch (Throwable ignore) {
+        }
+        lines.add("Inline translations stored: " + TgPlusInlineTranslations.storedCount());
         lines.add("Update channel: " + UpdateChecker.effectiveChannel() + (TextUtils.isEmpty(TgPlusSettings.getUpdateChannel()) ? " (this build's branch)" : ""));
         lines.add("Automatic update check: " + (TgPlusSettings.isAutoUpdateCheckEnabled() ? "on" : "off") + ", last check " + when(TgPlusSettings.getLastUpdateCheck()));
         lines.add("Update source: github.com/" + UpdateChecker.repository());
@@ -218,7 +228,7 @@ public final class TgPlusDiagnostics {
         AsrEngine engine = ParakeetEngine.getInstance();
         AsrEngine.Status status = engine.getStatus();
         lines.add("Engine: " + engine.displayName() + " (" + engine.id() + ")");
-        lines.add("State: " + status.state.name() + (TextUtils.isEmpty(status.code) ? "" : " (" + status.code + ")"));
+        lines.add("State: " + status.state.name() + (TextUtils.isEmpty(status.code) || status.code.equals(status.state.name()) ? "" : " (" + status.code + ")"));
         if (full) {
             lines.add("Model bytes on device: " + status.modelBytes);
             lines.add("Expected model download: about " + AndroidUtilities.formatFileSize(ParakeetEngine.APPROX_MODEL_BYTES));

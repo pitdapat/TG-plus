@@ -163,7 +163,7 @@ public final class TgPlusSelfTests {
                 } else {
                     int peakPercent = (int) Math.round(peak * 100.0 / 32767);
                     int rmsPercent = (int) Math.round(Math.sqrt(sumSquares / total) * 100.0 / 32767);
-                    String note = peakPercent < 1 ? " (silent: mic may be muted or blocked)" : "";
+                    String note = peakPercent < 3 ? " (very quiet: speak during the test; if you did, the mic may be muted or in use by another app)" : "";
                     TgPlusDiagnostics.recordTest(TgPlusDiagnostics.TEST_MICROPHONE, TgPlusDiagnostics.RESULT_PASS, duration,
                         "OK: " + (total * 1000 / SAMPLE_RATE) + " ms recorded, peak " + peakPercent + "%, average " + rmsPercent + "%" + note, null);
                 }

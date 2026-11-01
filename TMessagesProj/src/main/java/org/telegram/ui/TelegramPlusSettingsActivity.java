@@ -48,6 +48,8 @@ public class TelegramPlusSettingsActivity extends UniversalFragment {
     private static final int BUTTON_GEMINI_MODEL = 12;
     private static final int BUTTON_TRANSLATE_TO = 13;
     private static final int BUTTON_TEST_TRANSLATION = 14;
+    private static final int BUTTON_TELEGRAM_TRANSLATE_BUTTON = 15;
+    private static final int BUTTON_DO_NOT_TRANSLATE = 16;
     private static final int BUTTON_CHECK_UPDATES = 20;
     private static final int BUTTON_UPDATE_CHANNEL = 21;
     private static final int BUTTON_AUTO_UPDATE = 22;
@@ -107,6 +109,12 @@ public class TelegramPlusSettingsActivity extends UniversalFragment {
         }
         items.add(UItem.asShadow(getString(R.string.TgPlusTranslationInfo)));
 
+        // Telegram's own Language settings decide whether the Translate button appears at all.
+        items.add(UItem.asHeader(getString(R.string.TgPlusTelegramLanguageSettings)));
+        items.add(UItem.asButton(BUTTON_TELEGRAM_TRANSLATE_BUTTON, R.drawable.msg2_language, getString(R.string.TgPlusShowTranslateButton), translateButtonValue()));
+        items.add(UItem.asButton(BUTTON_DO_NOT_TRANSLATE, R.drawable.msg_cancel, getString(R.string.TgPlusDoNotTranslate), doNotTranslateValue()));
+        items.add(UItem.asShadow(languageSettingsInfo()));
+
         // App updates
         items.add(UItem.asHeader(getString(R.string.TgPlusUpdates)));
         items.add(UItem.asButton(BUTTON_CHECK_UPDATES, R.drawable.msg_download, getString(R.string.TgPlusCheckForUpdates), TgPlusUpdateFlow.describeInstalled()));
@@ -119,6 +127,40 @@ public class TelegramPlusSettingsActivity extends UniversalFragment {
         items.add(UItem.asButton(BUTTON_FEATURE_DIAGNOSTICS, R.drawable.msg_info, getString(R.string.TgPlusFeatureDiagnostics)));
         items.add(UItem.asButton(BUTTON_PUSH_DIAGNOSTICS, R.drawable.msg_report, getString(R.string.PushDiagTitle)));
         items.add(UItem.asShadow(getString(R.string.TgPlusDiagnosticsInfo)));
+    }
+
+    private String translateButtonValue() {
+        if (!getMessagesController().isTranslationsManualEnabled()) return getString(R.string.TgPlusTurnedOffByTelegram);
+        return getString(getMessagesController().getTranslateController().isContextTranslateEnabled() ? R.string.TgPlusOn : R.string.TgPlusOff);
+    }
+
+    private String doNotTranslateValue() {
+        ArrayList<String> names = new ArrayList<>();
+        for (String code : RestrictedLanguagesSelectActivity.getRestrictedLanguages()) {
+            String name = TranslateAlert2.capitalFirst(TranslateAlert2.languageName(code));
+            names.add(name == null ? code : name);
+        }
+        if (names.isEmpty()) return getString(R.string.TgPlusNone);
+        java.util.Collections.sort(names);
+        if (names.size() > 2) return names.get(0) + ", " + names.get(1) + " +" + (names.size() - 2);
+        return TextUtils.join(", ", names);
+    }
+
+    /** Explains how Telegram's Language settings interact with Telegram Plus translation. */
+    private CharSequence languageSettingsInfo() {
+        StringBuilder out = new StringBuilder();
+        boolean geminiActive = TgPlusSettings.isGeminiTranslationActive();
+        if (!getMessagesController().isTranslationsManualEnabled()) {
+            out.append(getString(R.string.TgPlusTranslateDisabledByTelegram)).append("\n\n");
+        } else if (!getMessagesController().getTranslateController().isContextTranslateEnabled()) {
+            out.append(getString(geminiActive ? R.string.TgPlusTranslateButtonOffGemini : R.string.TgPlusTranslateButtonOff)).append("\n\n");
+        }
+        String to = TranslateAlert2.getToLanguage();
+        if (to != null && !RestrictedLanguagesSelectActivity.getRestrictedLanguages().contains(to.split("_")[0])) {
+            out.append(formatString(R.string.TgPlusTargetNotInDoNotTranslate, TranslateAlert2.capitalFirst(TranslateAlert2.languageName(to)))).append("\n\n");
+        }
+        out.append(getString(R.string.TgPlusLanguageSettingsInfo));
+        return out.toString();
     }
 
     private String testValue(String id) {
@@ -188,6 +230,12 @@ public class TelegramPlusSettingsActivity extends UniversalFragment {
             case BUTTON_AUTO_UPDATE:
                 TgPlusSettings.setAutoUpdateCheckEnabled(!TgPlusSettings.isAutoUpdateCheckEnabled());
                 ((TextCheckCell) view).setChecked(TgPlusSettings.isAutoUpdateCheckEnabled());
+                break;
+            case BUTTON_TELEGRAM_TRANSLATE_BUTTON:
+                presentFragment(new LanguageSelectActivity());
+                break;
+            case BUTTON_DO_NOT_TRANSLATE:
+                presentFragment(new RestrictedLanguagesSelectActivity());
                 break;
             case BUTTON_FEATURE_DIAGNOSTICS:
                 presentFragment(new TgPlusDiagnosticsActivity());
