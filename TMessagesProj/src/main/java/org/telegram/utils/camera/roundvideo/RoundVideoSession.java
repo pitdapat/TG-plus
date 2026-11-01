@@ -220,6 +220,7 @@ public final class RoundVideoSession {
         private long maximumDurationMs = DEFAULT_MAXIMUM_DURATION_MS;
         private boolean compositionEnabled = true;
         private boolean videoStabilizationEnabled;
+        private boolean motionPriorityEnabled = true;
         private Listener listener;
         private OutputListener outputListener;
         private ScreenFlashController screenFlashController;
@@ -278,6 +279,16 @@ public final class RoundVideoSession {
          */
         public @NonNull Builder setVideoStabilizationEnabled(boolean enabled) {
             videoStabilizationEnabled = enabled;
+            return this;
+        }
+
+        /**
+         * Limits the shutter time to a flicker-safe value (1/100 or 1/120 s) when auto exposure
+         * would pick a longer one, raising ISO instead. Reduces motion blur in dim light at the
+         * cost of more noise. Also requests fast (single-frame) noise reduction.
+         */
+        public @NonNull Builder setMotionPriorityEnabled(boolean enabled) {
+            motionPriorityEnabled = enabled;
             return this;
         }
 
@@ -609,6 +620,7 @@ public final class RoundVideoSession {
                 + ", fps=" + requestedFrameRate.getValue()
                 + ", composition=" + compositionEnabled
                 + ", stabilization=" + builder.videoStabilizationEnabled
+                + ", motionPriority=" + builder.motionPriorityEnabled
                 + ", facing=" + requestedFacing
                 + ", maxDurationMs=" + maximumDurationMs);
         cameraController = new RoundVideoCameraController(
@@ -620,6 +632,7 @@ public final class RoundVideoSession {
                 requestedFrameRate,
                 compositionEnabled,
                 builder.videoStabilizationEnabled,
+                builder.motionPriorityEnabled,
                 diagnostics,
                 cameraCallback
         );

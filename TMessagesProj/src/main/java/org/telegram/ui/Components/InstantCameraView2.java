@@ -378,6 +378,7 @@ public final class InstantCameraView2 extends InstantCameraViewBase {
                 .setFrameRate(SharedSettings.roundVideoFrameRate.get())
                 .setCompositionEnabled(SharedSettings.roundVideoComposition.get())
                 .setVideoStabilizationEnabled(SharedSettings.roundVideoStabilization.get())
+                .setMotionPriorityEnabled(SharedSettings.roundVideoMotionPriority.get())
                 .setListener(sessionListener)
                 .setOutputListener(upload)
                 .setScreenFlashController(this::setScreenFlashEnabled)

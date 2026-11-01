@@ -100,6 +100,7 @@ final class RoundVideoCameraController {
     private final RoundVideoSession.FrameRate requestedFrameRate;
     private final boolean compositionEnabled;
     private final boolean videoStabilizationEnabled;
+    private final boolean motionPriorityEnabled;
     private final RoundVideoDiagnostics diagnostics;
     private final Callback callback;
     private final Rect zoomCropRect = new Rect();
@@ -126,6 +127,7 @@ final class RoundVideoCameraController {
     private RoundVideoSession.CameraResolution activeCameraResolution;
     private RoundVideoSession.FrameRate activeFrameRate;
     private Range<Integer> activeFpsRange;
+    private RoundVideoExposureController exposureController;
     private OutputPair regularFallbackPair;
     private long timelineOffsetUs;
     private volatile float zoomProgress;
@@ -205,6 +207,7 @@ final class RoundVideoCameraController {
             @NonNull RoundVideoSession.FrameRate frameRate,
             boolean compositionEnabled,
             boolean videoStabilizationEnabled,
+            boolean motionPriorityEnabled,
             @NonNull RoundVideoDiagnostics diagnostics,
             @NonNull Callback callback
     ) {
@@ -218,6 +221,7 @@ final class RoundVideoCameraController {
         this.requestedFrameRate = frameRate;
         this.compositionEnabled = compositionEnabled;
         this.videoStabilizationEnabled = videoStabilizationEnabled;
+        this.motionPriorityEnabled = motionPriorityEnabled;
         this.diagnostics = diagnostics;
         this.callback = callback;
         previewView.addOnLayoutChangeListener(layoutChangeListener);
@@ -271,6 +275,8 @@ final class RoundVideoCameraController {
             torchVerificationPending = isTorchAvailable();
             torchVerificationFrames = 0;
             torchVerificationRetries = 0;
+            // Lighting changes with the torch or screen flash; let auto exposure re-meter.
+            if (exposureController != null) exposureController.reset();
             diagnostics.log("torch requested: enabled=" + enabled
                     + ", available=" + isTorchAvailable()
                     + ", cameraId=" + cameraId
@@ -737,6 +743,14 @@ final class RoundVideoCameraController {
         } catch (IllegalStateException e) {
             recoverFromClosedCamera(session, e);
         } catch (CameraAccessException | IllegalArgumentException e) {
+            if (e instanceof IllegalArgumentException
+                    && exposureController != null
+                    && exposureController.getMode() != RoundVideoExposureController.Mode.AUTO) {
+                diagnostics.log("motion priority request rejected; using auto exposure: " + e);
+                exposureController.reset();
+                applyRepeatingRequest();
+                return;
+            }
             if (activeFrameRate == RoundVideoSession.FrameRate.FPS_60) {
                 fallbackTo30Fps("60 fps updated request rejected", e);
             } else {
@@ -788,6 +802,7 @@ final class RoundVideoCameraController {
         applyVideoStabilization(builder, logConfiguration);
         applyZoom(builder);
         applyTorch(builder);
+        if (exposureController != null) exposureController.apply(builder);
         requestGeneration++;
         builder.setTag(requestGeneration);
         if (torchVerificationPending) torchVerificationGeneration = requestGeneration;
@@ -811,6 +826,13 @@ final class RoundVideoCameraController {
                         @NonNull TotalCaptureResult result
                 ) {
                     verifyTorchResult(request, result);
+                    RoundVideoExposureController exposure = exposureController;
+                    if (exposure != null && exposure.onCaptureResult(result)) {
+                        diagnostics.log("motion priority: mode=" + exposure.getMode()
+                                + ", strategy=" + exposure.getStrategy()
+                                + ", limitMs=" + exposure.getExposureLimitNs() / 1_000_000f);
+                        applyRepeatingRequest();
+                    }
                     Long timestampNs = result.get(CaptureResult.SENSOR_TIMESTAMP);
                     if (timestampNs == null || timestampNs <= captureFpsLastTimestampNs) return;
                     long callbackNs = SystemClock.elapsedRealtimeNanos();
@@ -856,7 +878,10 @@ final class RoundVideoCameraController {
                             + ", over100ms=" + captureSensorGapsOver100Ms
                             + "}, callbackIntervalMs={avg="
                             + averageMs(captureCallbackIntervalTotalNs, captureCallbackIntervalCount)
-                            + ", max=" + nanosToMs(captureCallbackIntervalMaximumNs) + "}");
+                            + ", max=" + nanosToMs(captureCallbackIntervalMaximumNs) + "}"
+                            + (exposureController == null
+                            ? ""
+                            : ", " + exposureController.takeStatistics()));
                     resetCaptureFpsMeasurement();
                     captureFpsFirstTimestampNs = timestampNs;
                     captureFpsLastTimestampNs = timestampNs;
@@ -1143,6 +1168,11 @@ final class RoundVideoCameraController {
         characteristics = selectedCharacteristics;
         activeFrameRate = frameRatePlan.frameRate;
         activeFpsRange = frameRatePlan.fpsRange;
+        exposureController = new RoundVideoExposureController(
+                selectedCharacteristics,
+                motionPriorityEnabled,
+                activeFrameRate.getValue()
+        );
         frameRateFallbackAttempted = false;
         regularFallbackPair = regularPair;
         resetCaptureFpsMeasurement();
@@ -1170,6 +1200,8 @@ final class RoundVideoCameraController {
                 + ", recordingMinFrameDurationNs=" + recordingMinFrameDurationNs
                 + ", fps=" + activeFrameRate.getValue()
                 + ", fpsRange=" + activeFpsRange
+                + ", motionPriority=" + (motionPriorityEnabled
+                ? exposureController.getStrategy() : "DISABLED")
                 + ", timestampSource="
                 + (isCameraTimestampRealtime() ? "REALTIME" : "UNKNOWN")
                 + (activeFrameRate != requestedFrameRate
@@ -1396,6 +1428,13 @@ final class RoundVideoCameraController {
                 ? null
                 : characteristics.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES);
         activeFpsRange = findBestFpsRange(ranges, 30);
+        if (characteristics != null) {
+            exposureController = new RoundVideoExposureController(
+                    characteristics,
+                    motionPriorityEnabled,
+                    30
+            );
+        }
         previewSize = pair.preview;
         recordingSize = pair.recording;
         sourceCropSize = pair.cropSize;
@@ -1438,7 +1477,7 @@ final class RoundVideoCameraController {
     }
 
     @Nullable
-    private static Range<Integer> findBestFpsRange(
+    static Range<Integer> findBestFpsRange(
             @Nullable Range<Integer>[] ranges,
             int targetFps
     ) {
@@ -1648,6 +1687,32 @@ final class RoundVideoCameraController {
         return startedNs == 0
                 ? -1
                 : (SystemClock.elapsedRealtimeNanos() - startedNs) / 1_000_000L;
+    }
+
+    /** Describes the preview/recording streams this recorder would choose (for diagnostics). */
+    @NonNull
+    static String describeOutputSelection(
+            @NonNull CameraCharacteristics cameraCharacteristics,
+            @NonNull RoundVideoSession.OutputResolution outputResolution,
+            @NonNull RoundVideoSession.CameraResolution cameraResolution
+    ) {
+        StreamConfigurationMap map = cameraCharacteristics.get(
+                CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP
+        );
+        Size[] sizes = map == null ? null : map.getOutputSizes(SurfaceTexture.class);
+        if (sizes == null || sizes.length == 0) return "no SurfaceTexture outputs";
+        float sensorAspect = readSensorAspect(cameraCharacteristics);
+        try {
+            OutputPair pair = chooseOutputPair(sizes, outputResolution, cameraResolution, sensorAspect);
+            return "preview=" + pair.preview
+                    + ", recording=" + pair.recording
+                    + ", crop=" + pair.cropSize
+                    + ", tierUsed=" + pair.cameraResolution
+                    + ", squareFov=" + Math.round(squareFieldOfView(pair.recording, sensorAspect) * 100f)
+                    + "% of sensor height";
+        } catch (RuntimeException e) {
+            return "no valid output: " + e.getMessage();
+        }
     }
 
     @NonNull
