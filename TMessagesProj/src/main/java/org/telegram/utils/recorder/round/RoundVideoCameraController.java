@@ -142,6 +142,8 @@ final class RoundVideoCameraController {
     private final RoundVideoSession.CameraResolution requestedCameraResolution;
     private final RoundVideoSession.FrameRate requestedFrameRate;
     private final boolean compositionEnabled;
+    private final boolean videoStabilizationEnabled;
+    private final boolean motionPriorityEnabled;
     private final RoundVideoDiagnostics diagnostics;
     private final Callback callback;
     private final Rect zoomCropRect = new Rect();
@@ -173,6 +175,7 @@ final class RoundVideoCameraController {
     private RoundVideoSession.CameraResolution activeCameraResolution;
     private RoundVideoSession.FrameRate activeFrameRate;
     private Range<Integer> activeFpsRange;
+    private RoundVideoExposureController exposureController;
     private OutputPair regularFallbackPair;
     private long timelineOffsetUs;
     private volatile float zoomProgress;
@@ -273,6 +276,8 @@ final class RoundVideoCameraController {
             @NonNull RoundVideoSession.CameraResolution cameraResolution,
             @NonNull RoundVideoSession.FrameRate frameRate,
             boolean compositionEnabled,
+            boolean videoStabilizationEnabled,
+            boolean motionPriorityEnabled,
             @NonNull RoundVideoDiagnostics diagnostics,
             @NonNull Callback callback
     ) {
@@ -285,6 +290,8 @@ final class RoundVideoCameraController {
         this.requestedCameraResolution = cameraResolution;
         this.requestedFrameRate = frameRate;
         this.compositionEnabled = compositionEnabled;
+        this.videoStabilizationEnabled = videoStabilizationEnabled;
+        this.motionPriorityEnabled = motionPriorityEnabled;
         this.diagnostics = diagnostics;
         this.callback = callback;
         previewView.addOnLayoutChangeListener(layoutChangeListener);
@@ -338,6 +345,8 @@ final class RoundVideoCameraController {
             torchVerificationPending = isTorchAvailable();
             torchVerificationFrames = 0;
             torchVerificationRetries = 0;
+            // Lighting changes with the torch or screen flash; let auto exposure re-meter.
+            if (exposureController != null) exposureController.reset();
             diagnostics.log("torch requested: enabled=" + enabled
                     + ", available=" + isTorchAvailable()
                     + ", cameraId=" + cameraId
@@ -1598,6 +1607,14 @@ final class RoundVideoCameraController {
                 recoverFromClosedCamera(session, e);
             }
         } catch (CameraAccessException | IllegalArgumentException e) {
+            if (e instanceof IllegalArgumentException
+                    && exposureController != null
+                    && exposureController.getMode() != RoundVideoExposureController.Mode.AUTO) {
+                diagnostics.log("motion priority request rejected; using auto exposure: " + e);
+                exposureController.reset();
+                applyRepeatingRequest();
+                return;
+            }
             if (dualActiveMode) {
                 fallbackFromDualMode("active repeating request failed", e, false);
             } else if (activeFrameRate == RoundVideoSession.FrameRate.FPS_60) {
@@ -1679,6 +1696,7 @@ final class RoundVideoCameraController {
         if (activeControls) {
             applyZoom(builder);
             applyTorch(builder);
+            if (exposureController != null) exposureController.apply(builder);
         } else {
             int[] aeModes = selection.characteristics.get(
                     CameraCharacteristics.CONTROL_AE_AVAILABLE_MODES
@@ -1701,7 +1719,11 @@ final class RoundVideoCameraController {
         CaptureRequest baseline = builder.build();
         if (!stabilizationControlsRejected && characteristics != null) {
             try {
-                org.telegram.messenger.camera.RoundCameraPolicy.applySupportedControls(builder, characteristics);
+                org.telegram.messenger.camera.RoundCameraPolicy.applySupportedControls(
+                        builder,
+                        characteristics,
+                        videoStabilizationEnabled
+                );
                 session.setRepeatingRequest(builder.build(), captureCallback, cameraHandler);
                 return;
             } catch (IllegalArgumentException | CameraAccessException rejected) {
@@ -1725,6 +1747,13 @@ final class RoundVideoCameraController {
                 ) {
                     if (session != captureSession) return;
                     verifyTorchResult(request, result);
+                    RoundVideoExposureController exposure = exposureController;
+                    if (exposure != null && exposure.onCaptureResult(result)) {
+                        diagnostics.log("motion priority: mode=" + exposure.getMode()
+                                + ", strategy=" + exposure.getStrategy()
+                                + ", limitMs=" + exposure.getExposureLimitNs() / 1_000_000f);
+                        applyRepeatingRequest();
+                    }
                     Long timestampNs = result.get(CaptureResult.SENSOR_TIMESTAMP);
                     if (timestampNs == null || timestampNs <= captureFpsLastTimestampNs) return;
                     long callbackNs = SystemClock.elapsedRealtimeNanos();
@@ -1770,7 +1799,10 @@ final class RoundVideoCameraController {
                             + ", over100ms=" + captureSensorGapsOver100Ms
                             + "}, callbackIntervalMs={avg="
                             + averageMs(captureCallbackIntervalTotalNs, captureCallbackIntervalCount)
-                            + ", max=" + nanosToMs(captureCallbackIntervalMaximumNs) + "}");
+                            + ", max=" + nanosToMs(captureCallbackIntervalMaximumNs) + "}"
+                            + (exposureController == null
+                            ? ""
+                            : ", " + exposureController.takeStatistics()));
                     resetCaptureFpsMeasurement();
                     captureFpsFirstTimestampNs = timestampNs;
                     captureFpsLastTimestampNs = timestampNs;
@@ -1977,7 +2009,8 @@ final class RoundVideoCameraController {
                 OutputPair regularPair = chooseOutputPair(
                         candidateSizes,
                         outputResolution,
-                        requestedCameraResolution
+                        requestedCameraResolution,
+                        readSensorAspect(candidate)
                 );
                 FrameRatePlan frameRatePlan = resolveFrameRate(
                         id,
@@ -2038,6 +2071,11 @@ final class RoundVideoCameraController {
         characteristics = selectedCharacteristics;
         activeFrameRate = frameRatePlan.frameRate;
         activeFpsRange = frameRatePlan.fpsRange;
+        exposureController = new RoundVideoExposureController(
+                selectedCharacteristics,
+                motionPriorityEnabled,
+                activeFrameRate.getValue()
+        );
         frameRateFallbackAttempted = false;
         regularFallbackPair = regularPair;
         resetCaptureFpsMeasurement();
@@ -2065,6 +2103,8 @@ final class RoundVideoCameraController {
                 + ", recordingMinFrameDurationNs=" + recordingMinFrameDurationNs
                 + ", fps=" + activeFrameRate.getValue()
                 + ", fpsRange=" + activeFpsRange
+                + ", motionPriority=" + (motionPriorityEnabled
+                ? exposureController.getStrategy() : "DISABLED")
                 + ", timestampSource="
                 + (isCameraTimestampRealtime() ? "REALTIME" : "UNKNOWN")
                 + (activeFrameRate != requestedFrameRate
@@ -2119,6 +2159,13 @@ final class RoundVideoCameraController {
         maximumZoomRatio = selection.maximumZoomRatio;
         frameRateFallbackAttempted = false;
         resetCaptureFpsMeasurement();
+        if (characteristics != null && activeFrameRate != null) {
+            exposureController = new RoundVideoExposureController(
+                    characteristics,
+                    motionPriorityEnabled,
+                    activeFrameRate.getValue()
+            );
+        }
     }
 
     private void prepareWarmSwitchSupport() {
@@ -2213,7 +2260,8 @@ final class RoundVideoCameraController {
                 OutputPair regularPair = chooseOutputPair(
                         sizes,
                         outputResolution,
-                        requestedCameraResolution
+                        requestedCameraResolution,
+                        readSensorAspect(candidate)
                 );
                 if (resolveFrameRate(id, candidate, map, sizes, regularPair).frameRate
                         == RoundVideoSession.FrameRate.FPS_60) {
@@ -2321,7 +2369,8 @@ final class RoundVideoCameraController {
                 OutputPair pair = chooseOutputPair(
                         fastSizes,
                         outputResolution,
-                        requestedCameraResolution
+                        requestedCameraResolution,
+                        readSensorAspect(cameraCharacteristics)
                 );
                 diagnostics.log("fps selection: id=" + id
                         + ", requested=" + targetFps
@@ -2421,6 +2470,13 @@ final class RoundVideoCameraController {
                 ? null
                 : characteristics.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES);
         activeFpsRange = findBestFpsRange(ranges, 30);
+        if (characteristics != null) {
+            exposureController = new RoundVideoExposureController(
+                    characteristics,
+                    motionPriorityEnabled,
+                    30
+            );
+        }
         previewSize = pair.preview;
         recordingSize = pair.recording;
         sourceCropSize = pair.cropSize;
@@ -2459,7 +2515,7 @@ final class RoundVideoCameraController {
     }
 
     @Nullable
-    private static Range<Integer> findBestFpsRange(
+    static Range<Integer> findBestFpsRange(
             @Nullable Range<Integer>[] ranges,
             int targetFps
     ) {
@@ -2704,17 +2760,45 @@ final class RoundVideoCameraController {
                 : (SystemClock.elapsedRealtimeNanos() - startedNs) / 1_000_000L;
     }
 
+    /** Describes the preview/recording streams this recorder would choose (for diagnostics). */
+    @NonNull
+    static String describeOutputSelection(
+            @NonNull CameraCharacteristics cameraCharacteristics,
+            @NonNull RoundVideoSession.OutputResolution outputResolution,
+            @NonNull RoundVideoSession.CameraResolution cameraResolution
+    ) {
+        StreamConfigurationMap map = cameraCharacteristics.get(
+                CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP
+        );
+        Size[] sizes = map == null ? null : map.getOutputSizes(SurfaceTexture.class);
+        if (sizes == null || sizes.length == 0) return "no SurfaceTexture outputs";
+        float sensorAspect = readSensorAspect(cameraCharacteristics);
+        try {
+            OutputPair pair = chooseOutputPair(sizes, outputResolution, cameraResolution, sensorAspect);
+            return "preview=" + pair.preview
+                    + ", recording=" + pair.recording
+                    + ", crop=" + pair.cropSize
+                    + ", tierUsed=" + pair.cameraResolution
+                    + ", squareFov=" + Math.round(squareFieldOfView(pair.recording, sensorAspect) * 100f)
+                    + "% of sensor height";
+        } catch (RuntimeException e) {
+            return "no valid output: " + e.getMessage();
+        }
+    }
+
     @NonNull
     private static OutputPair chooseOutputPair(
             @NonNull Size[] sizes,
             @NonNull RoundVideoSession.OutputResolution outputResolution,
-            @NonNull RoundVideoSession.CameraResolution requestedResolution
+            @NonNull RoundVideoSession.CameraResolution requestedResolution,
+            float sensorAspect
     ) {
         int preferredCrop = getSourceCropSize(outputResolution, requestedResolution);
         OutputPair preferred = chooseTierPair(
                 sizes,
                 preferredCrop,
-                requestedResolution
+                requestedResolution,
+                sensorAspect
         );
         if (preferred != null) return preferred;
 
@@ -2723,7 +2807,8 @@ final class RoundVideoCameraController {
             OutputPair mediumFallback = chooseTierPair(
                     sizes,
                     480,
-                    RoundVideoSession.CameraResolution.MEDIUM
+                    RoundVideoSession.CameraResolution.MEDIUM,
+                    sensorAspect
             );
             if (mediumFallback != null) return mediumFallback;
         }
@@ -2733,7 +2818,8 @@ final class RoundVideoCameraController {
             OutputPair low = chooseTierPair(
                     sizes,
                     lowCrop,
-                    RoundVideoSession.CameraResolution.LOW
+                    RoundVideoSession.CameraResolution.LOW,
+                    sensorAspect
             );
             if (low != null) return low;
         }
@@ -2748,20 +2834,55 @@ final class RoundVideoCameraController {
         );
     }
 
+    /**
+     * Picks a stream whose short side fits the tier. The bubble always uses the full short side
+     * of the chosen stream: the tier's crop size only bounds which stream sizes qualify, so the
+     * field of view is never narrowed by an extra fixed-pixel centre crop.
+     */
     @Nullable
     private static OutputPair chooseTierPair(
             @NonNull Size[] sizes,
             int cropSize,
-            @NonNull RoundVideoSession.CameraResolution resolution
+            @NonNull RoundVideoSession.CameraResolution resolution,
+            float sensorAspect
     ) {
         OutputPair best = null;
         for (Size recording : sizes) {
             if (!isValidTierSize(recording, cropSize)) continue;
             Size preview = choosePreviewSize(sizes, recording);
-            OutputPair candidate = new OutputPair(preview, recording, resolution, cropSize);
-            if (best == null || compareOutputPairs(candidate, best) < 0) best = candidate;
+            OutputPair candidate = new OutputPair(
+                    preview,
+                    recording,
+                    resolution,
+                    shortSide(recording)
+            );
+            if (best == null || compareOutputPairs(candidate, best, sensorAspect) < 0) {
+                best = candidate;
+            }
         }
         return best;
+    }
+
+    /**
+     * Returns the square field of view of {@code size} relative to the sensor's short side.
+     * The HAL crops the sensor to the stream's aspect ratio, so streams wider than the sensor
+     * (16:9 on a 4:3 sensor) lose sensor height and look zoomed in once cut to a square.
+     */
+    private static float squareFieldOfView(@NonNull Size size, float sensorAspect) {
+        float streamAspect = Math.max(size.getWidth(), size.getHeight())
+                / (float) shortSide(size);
+        return Math.min(1f, sensorAspect / streamAspect);
+    }
+
+    private static float readSensorAspect(@NonNull CameraCharacteristics cameraCharacteristics) {
+        Rect activeArray = cameraCharacteristics.get(
+                CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE
+        );
+        if (activeArray == null || activeArray.width() <= 0 || activeArray.height() <= 0) {
+            return 4f / 3f;
+        }
+        return Math.max(activeArray.width(), activeArray.height())
+                / (float) Math.min(activeArray.width(), activeArray.height());
     }
 
     @NonNull
@@ -2814,7 +2935,10 @@ final class RoundVideoCameraController {
                 : Long.compare(area(left), area(right));
     }
 
-    private static int compareOutputPairs(OutputPair left, OutputPair right) {
+    private static int compareOutputPairs(OutputPair left, OutputPair right, float sensorAspect) {
+        float leftFov = squareFieldOfView(left.recording, sensorAspect);
+        float rightFov = squareFieldOfView(right.recording, sensorAspect);
+        if (Math.abs(leftFov - rightFov) > 0.01f) return leftFov > rightFov ? -1 : 1;
         int leftError = Math.abs(shortSide(left.preview) - PREVIEW_SHORT_SIDE);
         int rightError = Math.abs(shortSide(right.preview) - PREVIEW_SHORT_SIDE);
         if (leftError != rightError) return Integer.compare(leftError, rightError);

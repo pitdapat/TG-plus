@@ -22,13 +22,19 @@ public final class SharedSettings {
         EnumSetting.of("round_video_output_resolution", RoundVideoSession.OutputResolution.P480);
 
     public static final EnumSetting<RoundVideoSession.CameraResolution> roundVideoCameraResolution =
-        EnumSetting.of("round_video_camera_resolution", RoundVideoSession.CameraResolution.HIGH);
+        EnumSetting.of("round_video_camera_resolution", RoundVideoSession.CameraResolution.MEDIUM);
 
     public static final EnumSetting<RoundVideoSession.FrameRate> roundVideoFrameRate =
         EnumSetting.of("round_video_frame_rate", RoundVideoSession.FrameRate.FPS_30);
 
     public static final IntSetting roundVideoVideoBitrate =
         IntSetting.of("round_video_video_bitrate", 1_200_000);
+
+    public static final BooleanSetting roundVideoStabilization =
+        BooleanSetting.of("round_video_stabilization", false);
+
+    public static final BooleanSetting roundVideoMotionPriority =
+        BooleanSetting.of("round_video_motion_priority", true);
 
     public static final BooleanSetting roundVideoComposition =
         BooleanSetting.of("round_video_composition", true);
