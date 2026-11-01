@@ -1,33 +1,31 @@
 name: Build Telegram Plus APK
 
 on:
+  # Every branch builds the same signed side-by-side app (org.patrick.tgplus.web);
+  # the verify step below fails the run if the package or signing key is ever wrong.
   push:
-    branches: [telegram-plus]
-    paths:
-      - 'TMessagesProj/**'
-      - 'TMessagesProj_AppStandalone/**'
-      - 'TMessagesProj_Modules/**'
-      - 'build.gradle'
-      - 'settings.gradle'
-      - 'gradle.properties'
-      - '.gitmodules'
-      - 'tools/prepare_signing.py'
-      - 'tools/verify_firebase_apk.py'
-      - 'tools/test_push_diagnostics.py'
-      - '.github/workflows/build-apk.yml'
+    branches: ['**']
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: telegram-plus-apk
-  cancel-in-progress: false
+  # One build per branch; a newer push to the same branch replaces the older build.
+  group: telegram-plus-apk-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
+    outputs:
+      artifact: ${{ steps.name.outputs.artifact }}
+      branch: ${{ steps.name.outputs.branch }}
+      apk_name: ${{ steps.name.outputs.apk_name }}
     env:
       TELEGRAM_PLUS_CCACHE: '1'
       CCACHE_DIR: ${{ github.workspace }}/.cache/tgplus-ccache
@@ -54,7 +52,9 @@ jobs:
         uses: gradle/actions/setup-gradle@48b5f213c81028ace310571dc5ec0fbbca0b2947
         with:
           gradle-version: '8.13'
-          cache-disabled: true
+          # Cache Gradle's transforms and build cache so unchanged libraries are not
+          # re-dexed on every run; every branch may write so feature branches stay fast.
+          cache-read-only: false
 
       - name: Restore downloaded Gradle dependencies
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
@@ -125,7 +125,7 @@ jobs:
       - name: Compile standalone ARM64 APK
         run: >-
           gradle :TMessagesProj_AppStandalone:assembleAfatDebug
-          --no-daemon --no-parallel --max-workers=2
+          --no-daemon --parallel --max-workers=4 --build-cache
           -PRELEASE_STORE_PASSWORD=unused
           -PRELEASE_KEY_PASSWORD=unused
           -PRELEASE_KEY_ALIAS=unused
@@ -191,11 +191,76 @@ jobs:
         shell: bash
         run: rm -rf "$RUNNER_TEMP/tgplus-signing"
 
+      - name: Name artifact after branch and commit
+        id: name
+        shell: bash
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          safe_branch=$(printf '%s' "$BRANCH" | tr -c 'A-Za-z0-9._-' '-')
+          echo "ARTIFACT_NAME=Telegram-Plus-ARM64-${{ github.run_number }}-${safe_branch}-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          echo "artifact=Telegram-Plus-ARM64-${{ github.run_number }}-${safe_branch}-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "branch=${safe_branch}" >> "$GITHUB_OUTPUT"
+          version=$(sed -n 's/^APP_VERSION_NAME=//p' gradle.properties | tr -c 'A-Za-z0-9._-' '-' | sed 's/-*$//')
+          # Unique per build, so phones save each download under its own name instead of
+          # "Telegram_Plus (1).apk", "Telegram_Plus (2).apk", ...
+          echo "apk_name=TelegramPlus-${version}-${safe_branch}-build${{ github.run_number }}-${GITHUB_SHA::7}.apk" >> "$GITHUB_OUTPUT"
+
       - name: Upload signed APK
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: Telegram-Plus-ARM64-${{ github.run_number }}
+          name: ${{ env.ARTIFACT_NAME }}
           path: apk-artifact/Telegram_Plus.apk
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
+
+  # Separate job so only this small step gets write access to the repository.
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    concurrency:
+      group: telegram-plus-release-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - name: Download verified APK
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.build.outputs.artifact }}
+          path: apk
+
+      - name: Publish APK to the branch's GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          SAFE_BRANCH: ${{ needs.build.outputs.branch }}
+          APK_NAME: ${{ needs.build.outputs.apk_name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          tag="build-${SAFE_BRANCH}"
+          cp apk/Telegram_Plus.apk "$APK_NAME"
+          notes="Latest signed build of branch \`${BRANCH}\` (commit ${GITHUB_SHA::7}, run #${GITHUB_RUN_NUMBER}).
+
+          Package org.patrick.tgplus.web, signed with the permanent Telegram Plus key. Installs as an update.
+
+          Build log: ${RUN_URL}"
+          # One rolling release per branch: replace the previous build of this branch.
+          gh release delete "$tag" --cleanup-tag --yes 2>/dev/null || true
+          flags=(--prerelease)
+          if [ "$BRANCH" = "${{ github.event.repository.default_branch }}" ]; then flags=(--latest); fi
+          gh release create "$tag" "$APK_NAME" \
+            --target "$GITHUB_SHA" \
+            --title "Telegram Plus (${BRANCH}) - build #${GITHUB_RUN_NUMBER}" \
+            --notes "$notes" \
+            "${flags[@]}"
+          url="${{ github.server_url }}/${GH_REPO}/releases/download/${tag}/${APK_NAME}"
+          page="${{ github.server_url }}/${GH_REPO}/releases/tag/${tag}"
+          echo "### APK download: ${url}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Always-current page for this branch: ${page}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Published ${url}"
