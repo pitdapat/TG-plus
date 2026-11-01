@@ -12,6 +12,7 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.Color;
 import android.graphics.Matrix;
 import android.graphics.Outline;
@@ -60,6 +61,9 @@ import java.util.ArrayList;
 public final class InstantCameraView2 extends InstantCameraViewBase {
 
     private static final long MINIMUM_DURATION_MS = 800L;
+    private static final int NEUTRAL_COVER_COLOR = 0xFF1E1F22;
+    private static final long COVER_FADE_OUT_MS = 90L;
+    private static final long COVER_FADE_IN_MS = 160L;
     private static final float ZOOM_GESTURE_EFFORT = 1.5f;
     private static final int SWITCH_PREVIEW_BITMAP_SIZE = 180;
     private static final long UI_FRAME_FALLBACK_DELAY_NS = 70_000_000L;
@@ -1097,20 +1101,14 @@ public final class InstantCameraView2 extends InstantCameraViewBase {
         cameraContainer.setTranslationY(animationTranslationY + panTranslationY);
     }
 
+    /** Plain dark cover: never show an old frame from a previous bubble or camera. */
+    private void setNeutralCover() {
+        textureOverlayView.setImageDrawable(new ColorDrawable(NEUTRAL_COVER_COLOR));
+    }
+
     private void showInitialPlaceholder() {
         if (drawInitialPlaceholder) return;
-        if (lastBitmap == null) {
-            try {
-                File file = new File(ApplicationLoader.getFilesDirFixed(), "icthumb.jpg");
-                lastBitmap = BitmapFactory.decodeFile(file.getAbsolutePath());
-            } catch (Throwable ignore) {
-            }
-        }
-        if (lastBitmap != null) {
-            textureOverlayView.setImageBitmap(lastBitmap);
-        } else {
-            textureOverlayView.setImageResource(R.drawable.icplaceholder);
-        }
+        setNeutralCover();
         drawInitialPlaceholder = true;
         textureOverlayView.animate().cancel();
         textureOverlayView.setAlpha(1f);
@@ -1122,16 +1120,15 @@ public final class InstantCameraView2 extends InstantCameraViewBase {
         drawInitialPlaceholder = false;
         textureOverlayView.invalidate();
         textureOverlayView.animate().cancel();
-        textureOverlayView.setAlpha(0f);
+        textureOverlayView.animate().alpha(0f).setDuration(COVER_FADE_IN_MS).start();
     }
 
     private void showCameraSwitchPlaceholder() {
-        saveLastCameraBitmap(false);
-        if (lastBitmap != null) textureOverlayView.setImageBitmap(lastBitmap);
-        else textureOverlayView.setImageResource(R.drawable.icplaceholder);
+        setNeutralCover();
         switchPlaceholderVisible = true;
         textureOverlayView.animate().cancel();
-        textureOverlayView.setAlpha(1f);
+        // Quick dip to dark instead of freezing the last frame of the old camera.
+        textureOverlayView.animate().alpha(1f).setDuration(COVER_FADE_OUT_MS).start();
     }
 
     private void startCameraSwitchCut(
@@ -1198,7 +1195,11 @@ public final class InstantCameraView2 extends InstantCameraViewBase {
         if (!switchPlaceholderVisible) return;
         switchPlaceholderVisible = false;
         textureOverlayView.animate().cancel();
-        textureOverlayView.setAlpha(0f);
+        if (animated) {
+            textureOverlayView.animate().alpha(0f).setDuration(COVER_FADE_IN_MS).start();
+        } else {
+            textureOverlayView.setAlpha(0f);
+        }
     }
 
     private void saveLastCameraBitmap(boolean persist) {
