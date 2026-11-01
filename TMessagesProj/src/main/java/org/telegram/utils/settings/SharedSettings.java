@@ -33,8 +33,8 @@ public final class SharedSettings {
     public static final BooleanSetting roundVideoStabilization =
         BooleanSetting.of("round_video_stabilization", false);
 
-    public static final BooleanSetting roundVideoMotionPriority =
-        BooleanSetting.of("round_video_motion_priority", true);
+    public static final EnumSetting<RoundVideoSession.MotionPriority> roundVideoMotionPriorityLevel =
+        EnumSetting.of("round_video_motion_priority_level", RoundVideoSession.MotionPriority.BALANCED);
 
     public static final BooleanSetting roundVideoComposition =
         BooleanSetting.of("round_video_composition", true);

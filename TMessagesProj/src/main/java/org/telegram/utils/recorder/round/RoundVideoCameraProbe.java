@@ -169,7 +169,7 @@ public final class RoundVideoCameraProbe {
                 .append(", fps=").append(SharedSettings.roundVideoFrameRate.get().getValue())
                 .append(", bitrate=").append(SharedSettings.roundVideoVideoBitrate.get())
                 .append('\n');
-        r.append("motionPriority=").append(SharedSettings.roundVideoMotionPriority.get())
+        r.append("motionPriority=").append(SharedSettings.roundVideoMotionPriorityLevel.get())
                 .append(", stabilization=").append(SharedSettings.roundVideoStabilization.get())
                 .append(", composition=").append(SharedSettings.roundVideoComposition.get())
                 .append(", lastCamera=").append(SharedSettings.roundVideoLastCamera.get())
@@ -375,12 +375,20 @@ public final class RoundVideoCameraProbe {
 
             progress("Testing " + name + " camera: regular auto exposure…");
             runPhase(r, "A. regular auto exposure @30 (old behaviour)",
-                    device, session, reader.getSurface(), c, 30, false, AUTO_PHASE_MS, luma);
+                    device, session, reader.getSurface(), c, 30,
+                    RoundVideoSession.MotionPriority.OFF, AUTO_PHASE_MS, luma);
             if (cancelled) return;
 
-            progress("Testing " + name + " camera: motion priority…");
-            runPhase(r, "B. motion priority @30 (new default)",
-                    device, session, reader.getSurface(), c, 30, true, MOTION_PHASE_MS, luma);
+            progress("Testing " + name + " camera: motion priority (balanced)…");
+            runPhase(r, "B1. motion priority BALANCED @30 (default)",
+                    device, session, reader.getSurface(), c, 30,
+                    RoundVideoSession.MotionPriority.BALANCED, MOTION_PHASE_MS, luma);
+            if (cancelled) return;
+
+            progress("Testing " + name + " camera: motion priority (strong)…");
+            runPhase(r, "B2. motion priority STRONG @30",
+                    device, session, reader.getSurface(), c, 30,
+                    RoundVideoSession.MotionPriority.STRONG, MOTION_PHASE_MS, luma);
             if (cancelled) return;
 
             Range<Integer>[] ranges = c.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES);
@@ -389,7 +397,8 @@ public final class RoundVideoCameraProbe {
                     && (minNs <= 0 || minNs <= 1_000_000_000L / 60)) {
                 progress("Testing " + name + " camera: 60 fps…");
                 runPhase(r, "C. regular auto exposure @60",
-                        device, session, reader.getSurface(), c, 60, false, FPS60_PHASE_MS, luma);
+                        device, session, reader.getSurface(), c, 60,
+                        RoundVideoSession.MotionPriority.OFF, FPS60_PHASE_MS, luma);
             } else {
                 r.append("\n[C. 60 fps] not supported by this camera at the analysis size\n");
             }
@@ -414,7 +423,7 @@ public final class RoundVideoCameraProbe {
             @NonNull Surface target,
             @NonNull CameraCharacteristics c,
             int fps,
-            boolean motionPriority,
+            @NonNull RoundVideoSession.MotionPriority motionPriority,
             long durationMs,
             @NonNull LumaMeter luma
     ) throws Exception {

@@ -11300,6 +11300,9 @@
     <string name="RoundVideoStabilizationInfo">Steadier video, slightly narrower view</string>
     <string name="RoundVideoMotionPriority">Motion priority</string>
     <string name="RoundVideoMotionPriorityInfo">Faster shutter in dim light: less blur, more grain</string>
+    <string name="RoundVideoMotionPriorityOff">Off</string>
+    <string name="RoundVideoMotionPriorityBalanced">Balanced (1/50 s)</string>
+    <string name="RoundVideoMotionPriorityStrong">Strong (1/100 s, grainier)</string>
     <string name="RoundVideoDiagnosticsHeader">Diagnostics</string>
     <string name="RoundVideoDiagnostics">Camera test</string>
     <string name="RoundVideoDiagnosticsRun">Run camera test</string>

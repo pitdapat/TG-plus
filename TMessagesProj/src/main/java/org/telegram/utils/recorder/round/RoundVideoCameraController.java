@@ -122,6 +122,10 @@ final class RoundVideoCameraController {
     }
 
     private static final int PREVIEW_SHORT_SIDE = 720;
+    /** A 60 fps range must not let auto exposure go below this frame rate. */
+    private static final int MINIMUM_STEADY_FPS = 30;
+    /** Square field of view (fraction of sensor height) treated as "not zoomed". */
+    private static final float FULL_FIELD_OF_VIEW = 0.99f;
     private static final int MAXIMUM_SOURCE_SHORT_SIDE = 1088;
     private static final int MAXIMUM_SOURCE_LONG_SIDE = 1920;
     private static final int MAXIMUM_CROP_OVERSIZE_PERCENT = 15;
@@ -143,7 +147,7 @@ final class RoundVideoCameraController {
     private final RoundVideoSession.FrameRate requestedFrameRate;
     private final boolean compositionEnabled;
     private final boolean videoStabilizationEnabled;
-    private final boolean motionPriorityEnabled;
+    private final RoundVideoSession.MotionPriority motionPriority;
     private final RoundVideoDiagnostics diagnostics;
     private final Callback callback;
     private final Rect zoomCropRect = new Rect();
@@ -277,7 +281,7 @@ final class RoundVideoCameraController {
             @NonNull RoundVideoSession.FrameRate frameRate,
             boolean compositionEnabled,
             boolean videoStabilizationEnabled,
-            boolean motionPriorityEnabled,
+            @NonNull RoundVideoSession.MotionPriority motionPriority,
             @NonNull RoundVideoDiagnostics diagnostics,
             @NonNull Callback callback
     ) {
@@ -291,7 +295,7 @@ final class RoundVideoCameraController {
         this.requestedFrameRate = frameRate;
         this.compositionEnabled = compositionEnabled;
         this.videoStabilizationEnabled = videoStabilizationEnabled;
-        this.motionPriorityEnabled = motionPriorityEnabled;
+        this.motionPriority = motionPriority;
         this.diagnostics = diagnostics;
         this.callback = callback;
         previewView.addOnLayoutChangeListener(layoutChangeListener);
@@ -2073,7 +2077,7 @@ final class RoundVideoCameraController {
         activeFpsRange = frameRatePlan.fpsRange;
         exposureController = new RoundVideoExposureController(
                 selectedCharacteristics,
-                motionPriorityEnabled,
+                motionPriority,
                 activeFrameRate.getValue()
         );
         frameRateFallbackAttempted = false;
@@ -2103,8 +2107,7 @@ final class RoundVideoCameraController {
                 + ", recordingMinFrameDurationNs=" + recordingMinFrameDurationNs
                 + ", fps=" + activeFrameRate.getValue()
                 + ", fpsRange=" + activeFpsRange
-                + ", motionPriority=" + (motionPriorityEnabled
-                ? exposureController.getStrategy() : "DISABLED")
+                + ", motionPriority=" + motionPriority + "/" + exposureController.getStrategy()
                 + ", timestampSource="
                 + (isCameraTimestampRealtime() ? "REALTIME" : "UNKNOWN")
                 + (activeFrameRate != requestedFrameRate
@@ -2162,7 +2165,7 @@ final class RoundVideoCameraController {
         if (characteristics != null && activeFrameRate != null) {
             exposureController = new RoundVideoExposureController(
                     characteristics,
-                    motionPriorityEnabled,
+                    motionPriority,
                     activeFrameRate.getValue()
             );
         }
@@ -2363,6 +2366,14 @@ final class RoundVideoCameraController {
         }
         final int targetFps = requestedFrameRate.getValue();
         Range<Integer> normalRange = findBestFpsRange(ranges, targetFps);
+        if (normalRange != null && normalRange.getLower() < MINIMUM_STEADY_FPS) {
+            // Ranges such as [15, 60] let auto exposure drop to ~15-20 fps in dim light,
+            // which looks worse than a steady 30. Treat them as "no 60 fps support".
+            diagnostics.log("fps selection: id=" + id
+                    + ", regular " + targetFps + " fps rejected: range " + normalRange
+                    + " can drop below " + MINIMUM_STEADY_FPS + " fps");
+            normalRange = null;
+        }
         if (normalRange != null) {
             Size[] fastSizes = filterSizesForFrameRate(map, sizes, targetFps);
             try {
@@ -2473,7 +2484,7 @@ final class RoundVideoCameraController {
         if (characteristics != null) {
             exposureController = new RoundVideoExposureController(
                     characteristics,
-                    motionPriorityEnabled,
+                    motionPriority,
                     30
             );
         }
@@ -2800,6 +2811,19 @@ final class RoundVideoCameraController {
                 requestedResolution,
                 sensorAspect
         );
+        if (preferred != null
+                && squareFieldOfView(preferred.recording, sensorAspect) < FULL_FIELD_OF_VIEW) {
+            // e.g. MEDIUM on a phone without 960x720 only finds 1280x720 (16:9), which shows
+            // 75% of a 4:3 sensor. A neighbouring tier with a wider view looks far less zoomed.
+            OutputPair wider = chooseWiderTierPair(
+                    sizes,
+                    outputResolution,
+                    requestedResolution,
+                    sensorAspect,
+                    squareFieldOfView(preferred.recording, sensorAspect)
+            );
+            if (wider != null) return wider;
+        }
         if (preferred != null) return preferred;
 
         if (outputResolution == RoundVideoSession.OutputResolution.P360
@@ -2861,6 +2885,40 @@ final class RoundVideoCameraController {
             }
         }
         return best;
+    }
+
+    @Nullable
+    private static OutputPair chooseWiderTierPair(
+            @NonNull Size[] sizes,
+            @NonNull RoundVideoSession.OutputResolution outputResolution,
+            @NonNull RoundVideoSession.CameraResolution requested,
+            float sensorAspect,
+            float currentFieldOfView
+    ) {
+        RoundVideoSession.CameraResolution[] order;
+        if (requested == RoundVideoSession.CameraResolution.HIGH) {
+            order = new RoundVideoSession.CameraResolution[]{
+                    RoundVideoSession.CameraResolution.MEDIUM, RoundVideoSession.CameraResolution.LOW};
+        } else if (requested == RoundVideoSession.CameraResolution.MEDIUM) {
+            order = new RoundVideoSession.CameraResolution[]{
+                    RoundVideoSession.CameraResolution.HIGH, RoundVideoSession.CameraResolution.LOW};
+        } else {
+            order = new RoundVideoSession.CameraResolution[]{
+                    RoundVideoSession.CameraResolution.MEDIUM, RoundVideoSession.CameraResolution.HIGH};
+        }
+        for (RoundVideoSession.CameraResolution tier : order) {
+            OutputPair pair = chooseTierPair(
+                    sizes,
+                    getSourceCropSize(outputResolution, tier),
+                    tier,
+                    sensorAspect
+            );
+            if (pair != null
+                    && squareFieldOfView(pair.recording, sensorAspect) > currentFieldOfView + 0.01f) {
+                return pair;
+            }
+        }
+        return null;
     }
 
     /**
@@ -2930,9 +2988,12 @@ final class RoundVideoCameraController {
     private static int comparePreviewSizes(Size left, Size right) {
         int leftError = Math.abs(shortSide(left) - PREVIEW_SHORT_SIDE);
         int rightError = Math.abs(shortSide(right) - PREVIEW_SHORT_SIDE);
-        return leftError != rightError
-                ? Integer.compare(leftError, rightError)
-                : Long.compare(area(left), area(right));
+        if (leftError != rightError) return Integer.compare(leftError, rightError);
+        // Equally close (e.g. 640x480 vs 1280x960): the larger one keeps the preview sharp.
+        boolean leftLarge = shortSide(left) >= PREVIEW_SHORT_SIDE;
+        boolean rightLarge = shortSide(right) >= PREVIEW_SHORT_SIDE;
+        if (leftLarge != rightLarge) return leftLarge ? -1 : 1;
+        return Long.compare(area(left), area(right));
     }
 
     private static int compareOutputPairs(OutputPair left, OutputPair right, float sensorAspect) {

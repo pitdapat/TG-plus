@@ -68,6 +68,16 @@ public final class RoundVideoSession {
         BACK
     }
 
+    /** How hard the recorder limits shutter time in dim light to reduce motion blur. */
+    public enum MotionPriority {
+        /** Regular auto exposure. */
+        OFF,
+        /** Shutter at most 1/50 s (1/60 s under 60 Hz light): less blur, moderate grain. */
+        BALANCED,
+        /** Shutter at most 1/100 s (1/120 s under 60 Hz light): least blur, most grain. */
+        STRONG
+    }
+
     /** Requested video capture and encoder frame rate. */
     public enum FrameRate {
         /** Records at 30 frames per second. */
@@ -223,7 +233,7 @@ public final class RoundVideoSession {
         private long maximumDurationMs = DEFAULT_MAXIMUM_DURATION_MS;
         private boolean compositionEnabled = true;
         private boolean videoStabilizationEnabled;
-        private boolean motionPriorityEnabled = true;
+        private MotionPriority motionPriority = MotionPriority.BALANCED;
         private Listener listener;
         private OutputListener outputListener;
         private ScreenFlashController screenFlashController;
@@ -290,8 +300,8 @@ public final class RoundVideoSession {
          * would pick a longer one, raising ISO instead. Reduces motion blur in dim light at the
          * cost of more noise. Also requests fast (single-frame) noise reduction.
          */
-        public @NonNull Builder setMotionPriorityEnabled(boolean enabled) {
-            motionPriorityEnabled = enabled;
+        public @NonNull Builder setMotionPriority(@NonNull MotionPriority value) {
+            motionPriority = value;
             return this;
         }
 
@@ -623,7 +633,7 @@ public final class RoundVideoSession {
                 + ", fps=" + requestedFrameRate.getValue()
                 + ", composition=" + compositionEnabled
                 + ", stabilization=" + builder.videoStabilizationEnabled
-                + ", motionPriority=" + builder.motionPriorityEnabled
+                + ", motionPriority=" + builder.motionPriority
                 + ", facing=" + requestedFacing
                 + ", maxDurationMs=" + maximumDurationMs);
         cameraController = new RoundVideoCameraController(
@@ -635,7 +645,7 @@ public final class RoundVideoSession {
                 requestedFrameRate,
                 compositionEnabled,
                 builder.videoStabilizationEnabled,
-                builder.motionPriorityEnabled,
+                builder.motionPriority,
                 diagnostics,
                 cameraCallback
         );

@@ -143,8 +143,17 @@ public class RoundVideoSettingsActivity extends BaseFragment {
                     index -> SharedSettings.roundVideoVideoBitrate.set(BITRATES[index])
             );
         } else if (position == ROW_MOTION_PRIORITY) {
-            SharedSettings.roundVideoMotionPriority.set(!SharedSettings.roundVideoMotionPriority.get());
-            adapter.notifyItemChanged(position);
+            showChoice(
+                    R.string.RoundVideoMotionPriority,
+                    new CharSequence[]{
+                            LocaleController.getString(R.string.RoundVideoMotionPriorityOff),
+                            LocaleController.getString(R.string.RoundVideoMotionPriorityBalanced),
+                            LocaleController.getString(R.string.RoundVideoMotionPriorityStrong)
+                    },
+                    index -> SharedSettings.roundVideoMotionPriorityLevel.set(
+                            RoundVideoSession.MotionPriority.values()[index]
+                    )
+            );
         } else if (position == ROW_STABILIZATION) {
             SharedSettings.roundVideoStabilization.set(!SharedSettings.roundVideoStabilization.get());
             adapter.notifyItemChanged(position);
@@ -176,6 +185,15 @@ public class RoundVideoSettingsActivity extends BaseFragment {
 
     private interface ChoiceHandler {
         void onChoice(int index);
+    }
+
+    private static String motionPriorityLabel(RoundVideoSession.MotionPriority value) {
+        if (value == RoundVideoSession.MotionPriority.STRONG) {
+            return LocaleController.getString(R.string.RoundVideoMotionPriorityStrong);
+        } else if (value == RoundVideoSession.MotionPriority.BALANCED) {
+            return LocaleController.getString(R.string.RoundVideoMotionPriorityBalanced);
+        }
+        return LocaleController.getString(R.string.RoundVideoMotionPriorityOff);
     }
 
     private static String cameraResolutionLabel(RoundVideoSession.CameraResolution resolution) {
@@ -258,14 +276,6 @@ public class RoundVideoSettingsActivity extends BaseFragment {
                             enabled,
                             false
                     );
-                } else if (position == ROW_MOTION_PRIORITY) {
-                    cell.setTextAndValueAndCheck(
-                            LocaleController.getString(R.string.RoundVideoMotionPriority),
-                            LocaleController.getString(R.string.RoundVideoMotionPriorityInfo),
-                            SharedSettings.roundVideoMotionPriority.get(),
-                            false,
-                            true
-                    );
                 } else if (position == ROW_STABILIZATION) {
                     cell.setTextAndValueAndCheck(
                             LocaleController.getString(R.string.RoundVideoStabilization),
@@ -286,6 +296,12 @@ public class RoundVideoSettingsActivity extends BaseFragment {
                 cell.setEnabled(enabled || position == ROW_DIAGNOSTICS);
                 if (position == ROW_DIAGNOSTICS) {
                     cell.setText(LocaleController.getString(R.string.RoundVideoDiagnosticsRun), false);
+                } else if (position == ROW_MOTION_PRIORITY) {
+                    cell.setTextAndValue(
+                            LocaleController.getString(R.string.RoundVideoMotionPriority),
+                            motionPriorityLabel(SharedSettings.roundVideoMotionPriorityLevel.get()),
+                            true
+                    );
                 } else if (position == ROW_OUTPUT_RESOLUTION) {
                     cell.setTextAndValue(
                             LocaleController.getString(R.string.RoundVideoOutputResolution),
@@ -329,7 +345,6 @@ public class RoundVideoSettingsActivity extends BaseFragment {
                 return TYPE_HEADER;
             }
             if (position == ROW_ENABLED
-                    || position == ROW_MOTION_PRIORITY
                     || position == ROW_STABILIZATION
                     || position == ROW_COMPOSITION) {
                 return TYPE_CHECK;

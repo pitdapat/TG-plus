@@ -31,10 +31,16 @@ import java.util.Locale;
  */
 final class RoundVideoExposureController {
 
-    /** 1/100 s: whole number of half-cycles under 50 Hz lighting, so no banding. */
-    static final long LIMIT_50HZ_NS = 10_000_000L;
-    /** 1/120 s: whole number of half-cycles under 60 Hz lighting, so no banding. */
-    static final long LIMIT_60HZ_NS = 8_333_333L;
+    // Limits are whole multiples of the light's half-cycle (10 ms at 50 Hz, 8.33 ms at 60 Hz),
+    // so mains-powered lights do not cause banding.
+    /** STRONG: 1/100 s under 50 Hz light. */
+    static final long STRONG_50HZ_NS = 10_000_000L;
+    /** STRONG: 1/120 s under 60 Hz light. */
+    static final long STRONG_60HZ_NS = 8_333_333L;
+    /** BALANCED: 1/50 s under 50 Hz light. */
+    static final long BALANCED_50HZ_NS = 20_000_000L;
+    /** BALANCED: 1/60 s under 60 Hz light. */
+    static final long BALANCED_60HZ_NS = 16_666_667L;
 
     private static final float ENTER_MARGIN = 1.1f;
     private static final int ENTER_FRAMES = 6;
@@ -45,6 +51,7 @@ final class RoundVideoExposureController {
     enum Mode { AUTO, PRIORITY, MANUAL }
 
     private final boolean enabled;
+    private final boolean strong;
     private final Strategy strategy;
     private final int frameRate;
     private final boolean fastNoiseReductionSupported;
@@ -67,10 +74,11 @@ final class RoundVideoExposureController {
 
     RoundVideoExposureController(
             @NonNull CameraCharacteristics characteristics,
-            boolean enabled,
+            @NonNull RoundVideoSession.MotionPriority level,
             int frameRate
     ) {
-        this.enabled = enabled;
+        this.enabled = level != RoundVideoSession.MotionPriority.OFF;
+        this.strong = level == RoundVideoSession.MotionPriority.STRONG;
         this.frameRate = Math.max(1, frameRate);
         this.strategy = detectStrategy(characteristics);
         this.exposureRange = characteristics.get(
@@ -216,9 +224,9 @@ final class RoundVideoExposureController {
     }
 
     long getExposureLimitNs() {
-        return lastFlicker == CaptureResult.STATISTICS_SCENE_FLICKER_60HZ
-                ? LIMIT_60HZ_NS
-                : LIMIT_50HZ_NS;
+        boolean sixtyHz = lastFlicker == CaptureResult.STATISTICS_SCENE_FLICKER_60HZ;
+        if (strong) return sixtyHz ? STRONG_60HZ_NS : STRONG_50HZ_NS;
+        return sixtyHz ? BALANCED_60HZ_NS : BALANCED_50HZ_NS;
     }
 
     private long clampExposure(long exposureNs) {
@@ -247,7 +255,7 @@ final class RoundVideoExposureController {
                     statSensitivityTotal / statFrames,
                     statSensitivityMax,
                     mode,
-                    enabled ? strategy : "DISABLED",
+                    enabled ? (strong ? "STRONG/" : "BALANCED/") + strategy : "OFF",
                     getExposureLimitNs() / 1_000_000d,
                     fixedExposureNs / 1_000_000d,
                     fixedSensitivity,
