@@ -32,6 +32,7 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.ApplicationLoader;
@@ -667,6 +668,8 @@ public final class InstantCameraView2 extends InstantCameraViewBase {
             if (previous == RoundVideoSession.State.RECORDING
                     && info.getState() != RoundVideoSession.State.RECORDING) {
                 saveLastCameraBitmap(true);
+                Bitmap wash = captureColorWash();
+                if (wash != null) saveColorWash(wash, SharedSettings.roundVideoLastCamera.get());
             }
             lastVisibleDurationMs = Math.max(lastVisibleDurationMs, info.getRecordedDurationMs());
             if (info.getState() == RoundVideoSession.State.RECORDING) {
@@ -1123,29 +1126,66 @@ public final class InstantCameraView2 extends InstantCameraViewBase {
      * Falls back to the soft cover if no picture is available.
      */
     private void setColorWashCover() {
-        Bitmap wash = null;
-        if (textureView.isAvailable()) {
-            try {
-                wash = textureView.getBitmap(COLOR_WASH_SIZE, COLOR_WASH_SIZE);
-                if (wash != null) {
-                    wash = applyPreviewBitmapTransform(wash);
-                    Utilities.stackBlurBitmap(wash, 12);
-                    Utilities.stackBlurBitmap(wash, 12);
-                }
-            } catch (Throwable ignore) {
-                wash = null;
-            }
-        }
+        Bitmap wash = captureColorWash();
         if (wash == null) {
             setNeutralCover();
         } else {
+            saveColorWash(wash, SharedSettings.roundVideoLastCamera.get());
             textureOverlayView.setImageBitmap(wash);
+        }
+    }
+
+    /** Heavily blurred tiny copy of the live picture: only its colours survive. */
+    @Nullable
+    private Bitmap captureColorWash() {
+        if (!textureView.isAvailable()) return null;
+        try {
+            Bitmap wash = textureView.getBitmap(COLOR_WASH_SIZE, COLOR_WASH_SIZE);
+            if (wash == null || wash.getWidth() == 0
+                    || wash.getPixel(wash.getWidth() / 2, wash.getHeight() / 2) == 0) {
+                return null;
+            }
+            wash = applyPreviewBitmapTransform(wash);
+            Utilities.stackBlurBitmap(wash, 12);
+            Utilities.stackBlurBitmap(wash, 12);
+            return wash;
+        } catch (Throwable ignore) {
+            return null;
+        }
+    }
+
+    private static File colorWashFile(@NonNull RoundVideoSession.CameraFacing facing) {
+        return new File(ApplicationLoader.getFilesDirFixed(),
+                "round_color_wash_" + facing.name().toLowerCase(java.util.Locale.US) + ".png");
+    }
+
+    private static void saveColorWash(@NonNull Bitmap wash, @NonNull RoundVideoSession.CameraFacing facing) {
+        try (FileOutputStream stream = new FileOutputStream(colorWashFile(facing))) {
+            wash.compress(Bitmap.CompressFormat.PNG, 100, stream);
+        } catch (Throwable ignore) {
+        }
+    }
+
+    /** Colour wash of the last picture this camera showed, from an earlier bubble. */
+    @Nullable
+    private static Bitmap loadColorWash(@NonNull RoundVideoSession.CameraFacing facing) {
+        try {
+            File file = colorWashFile(facing);
+            return file.exists() ? BitmapFactory.decodeFile(file.getAbsolutePath()) : null;
+        } catch (Throwable ignore) {
+            return null;
         }
     }
 
     private void showInitialPlaceholder() {
         if (drawInitialPlaceholder) return;
-        setNeutralCover();
+        // Bubbles open on the front camera: start from the colours of its last picture.
+        Bitmap wash = loadColorWash(RoundVideoSession.CameraFacing.FRONT);
+        if (wash != null) {
+            textureOverlayView.setImageBitmap(wash);
+        } else {
+            setNeutralCover();
+        }
         drawInitialPlaceholder = true;
         textureOverlayView.animate().cancel();
         textureOverlayView.setAlpha(1f);
