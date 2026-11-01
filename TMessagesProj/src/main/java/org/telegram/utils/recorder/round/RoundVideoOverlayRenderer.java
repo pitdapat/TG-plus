@@ -183,7 +183,7 @@ final class RoundVideoOverlayRenderer {
             "}\n" +
             "void main() {\n" +
             "    vec4 oldFrame = sampleOldFrame();\n" +
-            "    oldFrame.rgb *= 1.0 - 0.85 * oldBlurMix;\n" +
+            "    oldFrame.rgb *= 1.0 - 0.2 * oldBlurMix;\n" +
             "    vec4 newFrame = mix(texture2D(nTexture, vTextureCoord),\n" +
             "            texture2D(nbTexture, vTextureCoord), newBlur);\n" +
             "    vec3 camera = mix(oldFrame.rgb, newFrame.rgb, mixValue);\n" +
@@ -224,7 +224,7 @@ final class RoundVideoOverlayRenderer {
             "}\n" +
             "void main() {\n" +
             "    vec4 oldFrame = sampleOldFrame();\n" +
-            "    oldFrame.rgb *= 1.0 - 0.85 * oldBlurMix;\n" +
+            "    oldFrame.rgb *= 1.0 - 0.2 * oldBlurMix;\n" +
             "    vec4 newFrame = mix(texture2D(nTexture, vTextureCoord),\n" +
             "            texture2D(nbTexture, vTextureCoord), newBlur);\n" +
             "    gl_FragColor = mix(oldFrame, newFrame, mixValue);\n" +

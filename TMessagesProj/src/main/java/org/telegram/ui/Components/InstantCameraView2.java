@@ -13,6 +13,7 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.GradientDrawable;
 import android.graphics.Color;
 import android.graphics.Matrix;
 import android.graphics.Outline;
@@ -61,9 +62,9 @@ import java.util.ArrayList;
 public final class InstantCameraView2 extends InstantCameraViewBase {
 
     private static final long MINIMUM_DURATION_MS = 800L;
-    private static final int NEUTRAL_COVER_COLOR = 0xFF1E1F22;
-    private static final long COVER_FADE_OUT_MS = 90L;
-    private static final long COVER_FADE_IN_MS = 160L;
+    private static final long COVER_FADE_OUT_MS = 140L;
+    private static final long COVER_FADE_IN_MS = 320L;
+    private static final int COLOR_WASH_SIZE = 40;
     private static final float ZOOM_GESTURE_EFFORT = 1.5f;
     private static final int SWITCH_PREVIEW_BITMAP_SIZE = 180;
     private static final long UI_FRAME_FALLBACK_DELAY_NS = 70_000_000L;
@@ -1101,9 +1102,45 @@ public final class InstantCameraView2 extends InstantCameraViewBase {
         cameraContainer.setTranslationY(animationTranslationY + panTranslationY);
     }
 
-    /** Plain dark cover: never show an old frame from a previous bubble or camera. */
+    /**
+     * Soft cover that matches the theme: a gentle radial gradient instead of a black disc.
+     * Never shows an old frame from a previous bubble.
+     */
     private void setNeutralCover() {
-        textureOverlayView.setImageDrawable(new ColorDrawable(NEUTRAL_COVER_COLOR));
+        boolean dark = Theme.isCurrentThemeDark();
+        GradientDrawable cover = new GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                dark ? new int[]{0xFF50545C, 0xFF3A3D43} : new int[]{0xFFE4E8ED, 0xFFC9CED6}
+        );
+        cover.setGradientType(GradientDrawable.RADIAL_GRADIENT);
+        cover.setGradientRadius(dp(160));
+        textureOverlayView.setImageDrawable(cover);
+    }
+
+    /**
+     * Turns the current camera picture into a very heavy blur (just its colours), so a camera
+     * switch melts through a soft colour wash instead of a held frame or a black screen.
+     * Falls back to the soft cover if no picture is available.
+     */
+    private void setColorWashCover() {
+        Bitmap wash = null;
+        if (textureView.isAvailable()) {
+            try {
+                wash = textureView.getBitmap(COLOR_WASH_SIZE, COLOR_WASH_SIZE);
+                if (wash != null) {
+                    wash = applyPreviewBitmapTransform(wash);
+                    Utilities.stackBlurBitmap(wash, 12);
+                    Utilities.stackBlurBitmap(wash, 12);
+                }
+            } catch (Throwable ignore) {
+                wash = null;
+            }
+        }
+        if (wash == null) {
+            setNeutralCover();
+        } else {
+            textureOverlayView.setImageBitmap(wash);
+        }
     }
 
     private void showInitialPlaceholder() {
@@ -1120,15 +1157,17 @@ public final class InstantCameraView2 extends InstantCameraViewBase {
         drawInitialPlaceholder = false;
         textureOverlayView.invalidate();
         textureOverlayView.animate().cancel();
-        textureOverlayView.animate().alpha(0f).setDuration(COVER_FADE_IN_MS).start();
+        textureOverlayView.animate().alpha(0f).setDuration(COVER_FADE_IN_MS)
+                .setInterpolator(CubicBezierInterpolator.EASE_OUT_QUINT).start();
     }
 
     private void showCameraSwitchPlaceholder() {
-        setNeutralCover();
+        setColorWashCover();
         switchPlaceholderVisible = true;
         textureOverlayView.animate().cancel();
-        // Quick dip to dark instead of freezing the last frame of the old camera.
-        textureOverlayView.animate().alpha(1f).setDuration(COVER_FADE_OUT_MS).start();
+        // Melt into a soft colour wash of the current scene, then into the new camera.
+        textureOverlayView.animate().alpha(1f).setDuration(COVER_FADE_OUT_MS)
+                .setInterpolator(CubicBezierInterpolator.EASE_OUT).start();
     }
 
     private void startCameraSwitchCut(
@@ -1196,7 +1235,8 @@ public final class InstantCameraView2 extends InstantCameraViewBase {
         switchPlaceholderVisible = false;
         textureOverlayView.animate().cancel();
         if (animated) {
-            textureOverlayView.animate().alpha(0f).setDuration(COVER_FADE_IN_MS).start();
+            textureOverlayView.animate().alpha(0f).setDuration(COVER_FADE_IN_MS)
+                    .setInterpolator(CubicBezierInterpolator.EASE_OUT_QUINT).start();
         } else {
             textureOverlayView.setAlpha(0f);
         }
