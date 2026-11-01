@@ -1,28 +1,22 @@
 name: Build Telegram Plus APK
 
 on:
+  # Every branch builds the same signed side-by-side app (org.patrick.tgplus.web);
+  # the verify step below fails the run if the package or signing key is ever wrong.
   push:
-    branches: [telegram-plus]
-    paths:
-      - 'TMessagesProj/**'
-      - 'TMessagesProj_AppStandalone/**'
-      - 'TMessagesProj_Modules/**'
-      - 'build.gradle'
-      - 'settings.gradle'
-      - 'gradle.properties'
-      - '.gitmodules'
-      - 'tools/prepare_signing.py'
-      - 'tools/verify_firebase_apk.py'
-      - 'tools/test_push_diagnostics.py'
-      - '.github/workflows/build-apk.yml'
+    branches: ['**']
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: telegram-plus-apk
-  cancel-in-progress: false
+  # One build per branch; a newer push to the same branch replaces the older build.
+  group: telegram-plus-apk-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -188,10 +182,18 @@ jobs:
         shell: bash
         run: rm -rf "$RUNNER_TEMP/tgplus-signing"
 
+      - name: Name artifact after branch and commit
+        shell: bash
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          safe_branch=$(printf '%s' "$BRANCH" | tr -c 'A-Za-z0-9._-' '-')
+          echo "ARTIFACT_NAME=Telegram-Plus-ARM64-${{ github.run_number }}-${safe_branch}-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+
       - name: Upload signed APK
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: Telegram-Plus-ARM64-${{ github.run_number }}
+          name: ${{ env.ARTIFACT_NAME }}
           path: apk-artifact/Telegram_Plus.apk
           if-no-files-found: error
           compression-level: 0
