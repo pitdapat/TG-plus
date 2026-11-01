@@ -99,6 +99,7 @@ final class RoundVideoCameraController {
     private final RoundVideoSession.CameraResolution requestedCameraResolution;
     private final RoundVideoSession.FrameRate requestedFrameRate;
     private final boolean compositionEnabled;
+    private final boolean videoStabilizationEnabled;
     private final RoundVideoDiagnostics diagnostics;
     private final Callback callback;
     private final Rect zoomCropRect = new Rect();
@@ -203,6 +204,7 @@ final class RoundVideoCameraController {
             @NonNull RoundVideoSession.CameraResolution cameraResolution,
             @NonNull RoundVideoSession.FrameRate frameRate,
             boolean compositionEnabled,
+            boolean videoStabilizationEnabled,
             @NonNull RoundVideoDiagnostics diagnostics,
             @NonNull Callback callback
     ) {
@@ -215,6 +217,7 @@ final class RoundVideoCameraController {
         this.requestedCameraResolution = cameraResolution;
         this.requestedFrameRate = frameRate;
         this.compositionEnabled = compositionEnabled;
+        this.videoStabilizationEnabled = videoStabilizationEnabled;
         this.diagnostics = diagnostics;
         this.callback = callback;
         previewView.addOnLayoutChangeListener(layoutChangeListener);
@@ -782,6 +785,7 @@ final class RoundVideoCameraController {
         );
         setContinuousVideoAf(builder);
         setPreferredFps(builder, logConfiguration);
+        applyVideoStabilization(builder, logConfiguration);
         applyZoom(builder);
         applyTorch(builder);
         requestGeneration++;
@@ -974,6 +978,34 @@ final class RoundVideoCameraController {
         previewTimestampNonMonotonic = 0L;
     }
 
+    private void applyVideoStabilization(
+            @NonNull CaptureRequest.Builder builder,
+            boolean logConfiguration
+    ) {
+        int[] modes = characteristics == null
+                ? null
+                : characteristics.get(
+                        CameraCharacteristics.CONTROL_AVAILABLE_VIDEO_STABILIZATION_MODES
+                );
+        boolean enable = videoStabilizationEnabled
+                && contains(modes, CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_ON);
+        // Set the mode explicitly either way: TEMPLATE_RECORD defaults differ between vendors.
+        builder.set(
+                CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,
+                enable
+                        ? CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_ON
+                        : CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF
+        );
+        if (logConfiguration) {
+            diagnostics.log("video stabilization: requested=" + videoStabilizationEnabled
+                    + ", supported=" + contains(
+                            modes,
+                            CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_ON
+                    )
+                    + ", applied=" + enable);
+        }
+    }
+
     private void applyZoom(@NonNull CaptureRequest.Builder builder) {
         float ratio = 1f + zoomProgress * (maximumZoomRatio - 1f);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -1049,7 +1081,8 @@ final class RoundVideoCameraController {
                 OutputPair regularPair = chooseOutputPair(
                         candidateSizes,
                         outputResolution,
-                        requestedCameraResolution
+                        requestedCameraResolution,
+                        readSensorAspect(candidate)
                 );
                 FrameRatePlan frameRatePlan = resolveFrameRate(
                         id,
@@ -1175,7 +1208,8 @@ final class RoundVideoCameraController {
                 OutputPair regularPair = chooseOutputPair(
                         sizes,
                         outputResolution,
-                        requestedCameraResolution
+                        requestedCameraResolution,
+                        readSensorAspect(candidate)
                 );
                 if (resolveFrameRate(id, candidate, map, sizes, regularPair).frameRate
                         == RoundVideoSession.FrameRate.FPS_60) {
@@ -1268,7 +1302,8 @@ final class RoundVideoCameraController {
                 OutputPair pair = chooseOutputPair(
                         fastSizes,
                         outputResolution,
-                        requestedCameraResolution
+                        requestedCameraResolution,
+                        readSensorAspect(cameraCharacteristics)
                 );
                 diagnostics.log("fps selection: id=" + id
                         + ", requested=" + targetFps
@@ -1619,13 +1654,15 @@ final class RoundVideoCameraController {
     private static OutputPair chooseOutputPair(
             @NonNull Size[] sizes,
             @NonNull RoundVideoSession.OutputResolution outputResolution,
-            @NonNull RoundVideoSession.CameraResolution requestedResolution
+            @NonNull RoundVideoSession.CameraResolution requestedResolution,
+            float sensorAspect
     ) {
         int preferredCrop = getSourceCropSize(outputResolution, requestedResolution);
         OutputPair preferred = chooseTierPair(
                 sizes,
                 preferredCrop,
-                requestedResolution
+                requestedResolution,
+                sensorAspect
         );
         if (preferred != null) return preferred;
 
@@ -1634,7 +1671,8 @@ final class RoundVideoCameraController {
             OutputPair mediumFallback = chooseTierPair(
                     sizes,
                     480,
-                    RoundVideoSession.CameraResolution.MEDIUM
+                    RoundVideoSession.CameraResolution.MEDIUM,
+                    sensorAspect
             );
             if (mediumFallback != null) return mediumFallback;
         }
@@ -1644,7 +1682,8 @@ final class RoundVideoCameraController {
             OutputPair low = chooseTierPair(
                     sizes,
                     lowCrop,
-                    RoundVideoSession.CameraResolution.LOW
+                    RoundVideoSession.CameraResolution.LOW,
+                    sensorAspect
             );
             if (low != null) return low;
         }
@@ -1659,20 +1698,55 @@ final class RoundVideoCameraController {
         );
     }
 
+    /**
+     * Picks a stream whose short side fits the tier. The bubble always uses the full short side
+     * of the chosen stream: the tier's crop size only bounds which stream sizes qualify, so the
+     * field of view is never narrowed by an extra fixed-pixel centre crop.
+     */
     @Nullable
     private static OutputPair chooseTierPair(
             @NonNull Size[] sizes,
             int cropSize,
-            @NonNull RoundVideoSession.CameraResolution resolution
+            @NonNull RoundVideoSession.CameraResolution resolution,
+            float sensorAspect
     ) {
         OutputPair best = null;
         for (Size recording : sizes) {
             if (!isValidTierSize(recording, cropSize)) continue;
             Size preview = choosePreviewSize(sizes, recording);
-            OutputPair candidate = new OutputPair(preview, recording, resolution, cropSize);
-            if (best == null || compareOutputPairs(candidate, best) < 0) best = candidate;
+            OutputPair candidate = new OutputPair(
+                    preview,
+                    recording,
+                    resolution,
+                    shortSide(recording)
+            );
+            if (best == null || compareOutputPairs(candidate, best, sensorAspect) < 0) {
+                best = candidate;
+            }
         }
         return best;
+    }
+
+    /**
+     * Returns the square field of view of {@code size} relative to the sensor's short side.
+     * The HAL crops the sensor to the stream's aspect ratio, so streams wider than the sensor
+     * (16:9 on a 4:3 sensor) lose sensor height and look zoomed in once cut to a square.
+     */
+    private static float squareFieldOfView(@NonNull Size size, float sensorAspect) {
+        float streamAspect = Math.max(size.getWidth(), size.getHeight())
+                / (float) shortSide(size);
+        return Math.min(1f, sensorAspect / streamAspect);
+    }
+
+    private static float readSensorAspect(@NonNull CameraCharacteristics cameraCharacteristics) {
+        Rect activeArray = cameraCharacteristics.get(
+                CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE
+        );
+        if (activeArray == null || activeArray.width() <= 0 || activeArray.height() <= 0) {
+            return 4f / 3f;
+        }
+        return Math.max(activeArray.width(), activeArray.height())
+                / (float) Math.min(activeArray.width(), activeArray.height());
     }
 
     @NonNull
@@ -1725,7 +1799,10 @@ final class RoundVideoCameraController {
                 : Long.compare(area(left), area(right));
     }
 
-    private static int compareOutputPairs(OutputPair left, OutputPair right) {
+    private static int compareOutputPairs(OutputPair left, OutputPair right, float sensorAspect) {
+        float leftFov = squareFieldOfView(left.recording, sensorAspect);
+        float rightFov = squareFieldOfView(right.recording, sensorAspect);
+        if (Math.abs(leftFov - rightFov) > 0.01f) return leftFov > rightFov ? -1 : 1;
         int leftError = Math.abs(shortSide(left.preview) - PREVIEW_SHORT_SIDE);
         int rightError = Math.abs(shortSide(right.preview) - PREVIEW_SHORT_SIDE);
         if (leftError != rightError) return Integer.compare(leftError, rightError);

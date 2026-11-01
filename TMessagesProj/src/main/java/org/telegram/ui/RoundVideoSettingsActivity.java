@@ -38,11 +38,12 @@ public class RoundVideoSettingsActivity extends BaseFragment {
     private static final int ROW_CAMERA_RESOLUTION = 3;
     private static final int ROW_FRAME_RATE = 4;
     private static final int ROW_BITRATE = 5;
-    private static final int ROW_GENERAL_INFO = 6;
-    private static final int ROW_COMPOSITION_HEADER = 7;
-    private static final int ROW_COMPOSITION = 8;
-    private static final int ROW_COMPOSITION_INFO = 9;
-    private static final int ROW_COUNT = BuildConfig.DEBUG_PRIVATE_VERSION ? 10 : 7;
+    private static final int ROW_STABILIZATION = 6;
+    private static final int ROW_GENERAL_INFO = 7;
+    private static final int ROW_COMPOSITION_HEADER = 8;
+    private static final int ROW_COMPOSITION = 9;
+    private static final int ROW_COMPOSITION_INFO = 10;
+    private static final int ROW_COUNT = BuildConfig.DEBUG_PRIVATE_VERSION ? 11 : 8;
 
     private static final int[] BITRATES = {
             750_000,
@@ -133,6 +134,9 @@ public class RoundVideoSettingsActivity extends BaseFragment {
                     labels,
                     index -> SharedSettings.roundVideoVideoBitrate.set(BITRATES[index])
             );
+        } else if (position == ROW_STABILIZATION) {
+            SharedSettings.roundVideoStabilization.set(!SharedSettings.roundVideoStabilization.get());
+            adapter.notifyItemChanged(position);
         } else if (position == ROW_COMPOSITION) {
             SharedSettings.roundVideoComposition.set(!SharedSettings.roundVideoComposition.get());
             adapter.notifyItemChanged(position);
@@ -197,6 +201,7 @@ public class RoundVideoSettingsActivity extends BaseFragment {
                     || position == ROW_CAMERA_RESOLUTION
                     || position == ROW_FRAME_RATE
                     || position == ROW_BITRATE
+                    || position == ROW_STABILIZATION
                     || position == ROW_COMPOSITION;
         }
 
@@ -239,6 +244,14 @@ public class RoundVideoSettingsActivity extends BaseFragment {
                             enabled,
                             false
                     );
+                } else if (position == ROW_STABILIZATION) {
+                    cell.setTextAndValueAndCheck(
+                            LocaleController.getString(R.string.RoundVideoStabilization),
+                            LocaleController.getString(R.string.RoundVideoStabilizationInfo),
+                            SharedSettings.roundVideoStabilization.get(),
+                            false,
+                            false
+                    );
                 } else {
                     cell.setTextAndCheck(
                             LocaleController.getString(R.string.RoundVideoCompositionEnabled),
@@ -271,7 +284,7 @@ public class RoundVideoSettingsActivity extends BaseFragment {
                     cell.setTextAndValue(
                             LocaleController.getString(R.string.RoundVideoBitrate),
                             formatBitrate(SharedSettings.roundVideoVideoBitrate.get()),
-                            false
+                            true
                     );
                 }
             } else {
@@ -288,6 +301,7 @@ public class RoundVideoSettingsActivity extends BaseFragment {
                 return TYPE_HEADER;
             }
             if (position == ROW_ENABLED
+                    || position == ROW_STABILIZATION
                     || position == ROW_COMPOSITION) {
                 return TYPE_CHECK;
             }

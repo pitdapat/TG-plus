@@ -444,6 +444,38 @@ public class Camera2Session {
         }
     }
 
+    private int targetVideoFps;
+    /**
+     * Pins video capture to an AE range containing {@code fps} (e.g. 30 to match a fixed-rate
+     * encoder). Zero keeps the default 30-60 range.
+     */
+    public void setTargetVideoFps(int fps) {
+        if (targetVideoFps != fps) {
+            targetVideoFps = fps;
+            updateCaptureRequest();
+        }
+    }
+
+    private Range<Integer> getVideoFpsRange() {
+        if (targetVideoFps <= 0 || cameraCharacteristics == null) {
+            return new Range<>(30, 60);
+        }
+        Range<Integer>[] ranges = cameraCharacteristics.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES);
+        Range<Integer> best = null;
+        if (ranges != null) {
+            for (Range<Integer> range : ranges) {
+                if (!range.contains(targetVideoFps)) continue;
+                // Prefer the highest lower bound (steadiest frame timing), then the tightest upper bound.
+                if (best == null
+                        || range.getLower() > best.getLower()
+                        || range.getLower().equals(best.getLower()) && range.getUpper() < best.getUpper()) {
+                    best = range;
+                }
+            }
+        }
+        return best != null ? best : new Range<>(30, 60);
+    }
+
     private boolean recordingVideo;
     public void setRecordingVideo(boolean recording) {
         if (recordingVideo != recording) {
@@ -490,7 +522,7 @@ public class Camera2Session {
             captureRequestBuilder.set(CaptureRequest.FLASH_MODE, flashing ? (recordingVideo ? CaptureRequest.FLASH_MODE_TORCH : CaptureRequest.FLASH_MODE_SINGLE) : CaptureRequest.FLASH_MODE_OFF);
 
             if (recordingVideo) {
-                captureRequestBuilder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, new Range<Integer>(30, 60));
+                captureRequestBuilder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, getVideoFpsRange());
                 captureRequestBuilder.set(CaptureRequest.CONTROL_CAPTURE_INTENT, CaptureRequest.CONTROL_CAPTURE_INTENT_VIDEO_RECORD);
             }
 

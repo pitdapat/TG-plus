@@ -781,6 +781,7 @@ public class InstantCameraView extends InstantCameraViewBase implements Notifica
                     if (camera2Sessions[a] == null) {
                         camera2Sessions[a] = Camera2Session.create(a == 0, MessagesController.getInstance(UserConfig.selectedAccount).roundVideoSize, MessagesController.getInstance(UserConfig.selectedAccount).roundVideoSize);
                         if (camera2Sessions[a] != null) {
+                            camera2Sessions[a].setTargetVideoFps(30);
                             camera2Sessions[a].setRecordingVideo(true);
                             previewSize[a] = new Size(camera2Sessions[a].getPreviewWidth(), camera2Sessions[a].getPreviewHeight());
                         }
@@ -795,6 +796,7 @@ public class InstantCameraView extends InstantCameraViewBase implements Notifica
             } else {
                 camera2SessionCurrent = camera2Sessions[isFrontface ? 0 : 1] = Camera2Session.create(isFrontface, MessagesController.getInstance(UserConfig.selectedAccount).roundVideoSize, MessagesController.getInstance(UserConfig.selectedAccount).roundVideoSize);
                 if (camera2SessionCurrent == null) return;
+                camera2SessionCurrent.setTargetVideoFps(30);
                 camera2SessionCurrent.setRecordingVideo(true);
                 previewSize[0] = new Size(camera2SessionCurrent.getPreviewWidth(), camera2SessionCurrent.getPreviewHeight());
             }
@@ -1154,6 +1156,7 @@ public class InstantCameraView extends InstantCameraViewBase implements Notifica
                 }
                 camera2SessionCurrent = camera2Sessions[isFrontface ? 0 : 1] = Camera2Session.create(isFrontface, MessagesController.getInstance(UserConfig.selectedAccount).roundVideoSize, MessagesController.getInstance(UserConfig.selectedAccount).roundVideoSize);
                 if (camera2SessionCurrent == null) return;
+                camera2SessionCurrent.setTargetVideoFps(30);
                 camera2SessionCurrent.setRecordingVideo(true);
                 previewSize[0] = new Size(camera2SessionCurrent.getPreviewWidth(), camera2SessionCurrent.getPreviewHeight());
                 cameraThread.setCurrentSession(camera2SessionCurrent);
