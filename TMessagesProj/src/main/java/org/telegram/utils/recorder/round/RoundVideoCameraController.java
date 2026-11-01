@@ -157,6 +157,14 @@ final class RoundVideoCameraController {
     private String cameraId;
     private CameraCharacteristics characteristics;
     private boolean initialPreviewFrameDelivered;
+    /**
+     * True once this segment's capture session is running. Updates before that are leftovers
+     * from the previous bubble still queued in the shared TextureView and must not hide the
+     * placeholder (they showed up as a frozen last frame for ~0.6 s on open).
+     */
+    private volatile boolean previewFramesLive;
+    private static final String DEVICE_PREFS = "round_video_device";
+    private static final String KEY_DUAL_CAMERA_BROKEN = "dual_camera_broken_fingerprint";
     private boolean stabilizationControlsRejected;
     private Size previewSize;
     private volatile Size recordingSize;
@@ -315,6 +323,7 @@ final class RoundVideoCameraController {
         commonStartRecorder = null;
         previewTransformEnabled = true;
         segmentStartedNs = SystemClock.elapsedRealtimeNanos();
+        previewFramesLive = false;
         resetPreviewFrameMetrics();
         resetCaptureFpsMeasurement();
         diagnostics.log("camera segment start: facing=" + facing
@@ -464,7 +473,8 @@ final class RoundVideoCameraController {
                     }
                     long now = SystemClock.elapsedRealtimeNanos();
                     long timestampNs = surfaceTexture.getTimestamp();
-                    if (active && timestampNs > 0 && !initialPreviewFrameDelivered) {
+                    if (active && previewFramesLive && timestampNs > 0
+                            && !initialPreviewFrameDelivered) {
                         initialPreviewFrameDelivered = true;
                         callback.onCameraPreviewFirstFrame();
                     }
@@ -1095,6 +1105,9 @@ final class RoundVideoCameraController {
             @Nullable Exception activeError
     ) {
         boolean promoted = device == cameraDevice;
+        // Only a disconnect right after opening means "no real concurrent support"; other
+        // errors (camera busy, etc.) can be temporary.
+        if (!promoted && "disconnected".equals(reason)) rememberDualCameraBroken(reason);
         if (!promoted && dualActiveMode) {
             diagnostics.log("camera dual-active fallback: reason=standby device " + reason
                     + (activeError == null ? "" : ", error=" + activeError));
@@ -1131,6 +1144,25 @@ final class RoundVideoCameraController {
             diagnostics.log("warm camera failed during startup; configuring active camera only");
             createCaptureSession();
         }
+    }
+
+    /**
+     * Some phones (e.g. OPPO CPH2791) advertise concurrent front+back cameras but disconnect the
+     * second one as soon as it opens. Remember that per build so later bubbles skip the attempt.
+     */
+    private boolean isDualCameraKnownBroken() {
+        return Build.FINGERPRINT.equals(context
+                .getSharedPreferences(DEVICE_PREFS, Context.MODE_PRIVATE)
+                .getString(KEY_DUAL_CAMERA_BROKEN, null));
+    }
+
+    private void rememberDualCameraBroken(@NonNull String reason) {
+        if (isDualCameraKnownBroken()) return;
+        context.getSharedPreferences(DEVICE_PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putString(KEY_DUAL_CAMERA_BROKEN, Build.FINGERPRINT)
+                .apply();
+        diagnostics.log("dual camera marked unsupported for this device: reason=" + reason);
     }
 
     private void disableWarmSwitch(@NonNull String reason, @Nullable Exception error) {
@@ -1433,6 +1465,7 @@ final class RoundVideoCameraController {
                                 && pendingWarmSwitchFacing != null;
                         boolean wasSwitch = notifySwitchCompletion && !pendingDualSwitch;
                         submitRepeatingRequest();
+                        previewFramesLive = true;
                         if (dualActiveMode) activeDualSessionConfigured = true;
                         if (!pendingDualSwitch) notifySwitchCompletion = false;
                         if (wasSwitch) switchingCamera = false;
@@ -2173,6 +2206,12 @@ final class RoundVideoCameraController {
 
     private void prepareWarmSwitchSupport() {
         if (warmSwitchDisabled) {
+            return;
+        }
+        if (isDualCameraKnownBroken()) {
+            warmSwitchDisabled = true;
+            diagnostics.log("camera dual-active capability: supported=false, "
+                    + "reason=standby camera disconnected on this device before");
             return;
         }
         if (warmSwitchSupported) {

@@ -437,13 +437,7 @@ final class RoundVideoOverlayRenderer {
             newSwitchBlurRadius = -1f;
             switchNewFrameCaptured = true;
         } else {
-            renderTextureCopy(
-                    TEXTURE_SWITCH_OLD,
-                    FRAME_BUFFER_SWITCH_OLD_MIP,
-                    SWITCH_OLD_MIP_SIZE,
-                    SWITCH_OLD_MIP_SIZE
-            );
-            generateOldSwitchMipmaps();
+            blurOldSwitchFrame();
             switchOldBackgroundTexture = historyReadTexture;
             switchNewBackgroundTexture = historyWriteTexture;
             switchNewFrameCaptured = false;
@@ -733,6 +727,35 @@ final class RoundVideoOverlayRenderer {
         return (float) Math.exp(-deltaNs / TEMPORAL_TIME_CONSTANT_NS);
     }
 
+    /**
+     * Pre-blurs the frozen last frame with the separable Gaussian used for the new frame.
+     * Replaces glGenerateMipmap on a just-rendered FBO texture, which on Mali GPUs produced
+     * black square blocks during the camera switch.
+     */
+    private void blurOldSwitchFrame() {
+        float offset = getSwitchTargetBlurRadiusPx()
+                / (SWITCH_GAUSSIAN_KERNEL_RADIUS * outputSize);
+        renderSwitchGaussianBlurPass(
+                TEXTURE_SWITCH_OLD,
+                FRAME_BUFFER_SWITCH_NEW_BLUR_TEMP,
+                switchNewBlurSize,
+                switchNewBlurSize,
+                offset,
+                0f
+        );
+        renderSwitchGaussianBlurPass(
+                TEXTURE_SWITCH_NEW_BLUR_TEMP,
+                FRAME_BUFFER_SWITCH_OLD_MIP,
+                SWITCH_OLD_MIP_SIZE,
+                SWITCH_OLD_MIP_SIZE,
+                0f,
+                offset
+        );
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
+        setTextureMinFilter(TEXTURE_SWITCH_OLD_MIP, GLES20.GL_LINEAR);
+    }
+
+    @SuppressWarnings("unused")
     private void generateOldSwitchMipmaps() {
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textures[TEXTURE_SWITCH_OLD_MIP]);
@@ -776,11 +799,13 @@ final class RoundVideoOverlayRenderer {
         String source = compositionEnabled
                 ? TRANSITION_FRAGMENT_SHADER
                 : SIMPLE_TRANSITION_FRAGMENT_SHADER;
-        if (explicitTextureLod) {
-            return "#extension GL_EXT_shader_texture_lod : require\n"
-                    + source.replace("sampleOldMip", "texture2DLodEXT");
-        }
-        return source.replace("sampleOldMip", "texture2D");
+        // The old frame is pre-blurred (see blurOldSwitchFrame), so it is sampled without
+        // mip levels; the LOD/bias argument is ignored.
+        return source.replace(
+                "vec4 sampleOldFrame() {",
+                "vec4 sampleOldMip(sampler2D t, vec2 c, float lod) { return texture2D(t, c); }\n"
+                        + "vec4 sampleOldFrame() {"
+        );
     }
 
     private static float clamp01(float value) {
