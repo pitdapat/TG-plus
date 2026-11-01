@@ -25,6 +25,7 @@ jobs:
     outputs:
       artifact: ${{ steps.name.outputs.artifact }}
       branch: ${{ steps.name.outputs.branch }}
+      apk_name: ${{ steps.name.outputs.apk_name }}
     env:
       TELEGRAM_PLUS_CCACHE: '1'
       CCACHE_DIR: ${{ github.workspace }}/.cache/tgplus-ccache
@@ -197,6 +198,10 @@ jobs:
           echo "ARTIFACT_NAME=Telegram-Plus-ARM64-${{ github.run_number }}-${safe_branch}-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
           echo "artifact=Telegram-Plus-ARM64-${{ github.run_number }}-${safe_branch}-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           echo "branch=${safe_branch}" >> "$GITHUB_OUTPUT"
+          version=$(sed -n 's/^APP_VERSION_NAME=//p' gradle.properties | tr -c 'A-Za-z0-9._-' '-' | sed 's/-*$//')
+          # Unique per build, so phones save each download under its own name instead of
+          # "Telegram_Plus (1).apk", "Telegram_Plus (2).apk", ...
+          echo "apk_name=TelegramPlus-${version}-${safe_branch}-build${{ github.run_number }}-${GITHUB_SHA::7}.apk" >> "$GITHUB_OUTPUT"
 
       - name: Upload signed APK
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -231,11 +236,12 @@ jobs:
           GH_REPO: ${{ github.repository }}
           BRANCH: ${{ github.ref_name }}
           SAFE_BRANCH: ${{ needs.build.outputs.branch }}
+          APK_NAME: ${{ needs.build.outputs.apk_name }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
           tag="build-${SAFE_BRANCH}"
-          cp apk/Telegram_Plus.apk Telegram_Plus.apk
+          cp apk/Telegram_Plus.apk "$APK_NAME"
           notes="Latest signed build of branch \`${BRANCH}\` (commit ${GITHUB_SHA::7}, run #${GITHUB_RUN_NUMBER}).
 
           Package org.patrick.tgplus.web, signed with the permanent Telegram Plus key. Installs as an update.
@@ -245,11 +251,13 @@ jobs:
           gh release delete "$tag" --cleanup-tag --yes 2>/dev/null || true
           flags=(--prerelease)
           if [ "$BRANCH" = "${{ github.event.repository.default_branch }}" ]; then flags=(--latest); fi
-          gh release create "$tag" Telegram_Plus.apk \
+          gh release create "$tag" "$APK_NAME" \
             --target "$GITHUB_SHA" \
             --title "Telegram Plus (${BRANCH}) - build #${GITHUB_RUN_NUMBER}" \
             --notes "$notes" \
             "${flags[@]}"
-          url="${{ github.server_url }}/${GH_REPO}/releases/download/${tag}/Telegram_Plus.apk"
+          url="${{ github.server_url }}/${GH_REPO}/releases/download/${tag}/${APK_NAME}"
+          page="${{ github.server_url }}/${GH_REPO}/releases/tag/${tag}"
           echo "### APK download: ${url}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Always-current page for this branch: ${page}" >> "$GITHUB_STEP_SUMMARY"
           echo "Published ${url}"
