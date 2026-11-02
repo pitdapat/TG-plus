@@ -1,31 +1,42 @@
 name: Build Telegram Plus APK
 
+# One workflow for every branch. It builds the signed side-by-side app
+# (org.patrick.tgplus.web) and publishes it as a rolling GitHub Release per branch.
+#
+# MANUAL ONLY: pushing does not start a build, so work can be iterated freely.
+# Start a build from the Actions tab ("Run workflow") or with:
+#   gh workflow run build-apk.yml --ref master -f ref=<branch, tag or SHA>
+# The `ref` input is the code that gets built. The workflow file itself is taken from
+# the branch chosen in "Use workflow from" (use master), so the target branch does not
+# need its own copy.
 on:
-  # Every branch builds the same signed side-by-side app (org.patrick.tgplus.web);
-  # the verify step below fails the run if the package or signing key is ever wrong.
-  push:
-    branches: ['**']
-    paths-ignore:
-      - '**.md'
-      - 'LICENSE'
   workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag or SHA to build (blank = the branch this run was started on)
+        required: false
+        default: ''
 
 permissions:
   contents: read
 
 concurrency:
-  # One build per branch; a newer push to the same branch replaces the older build.
-  group: telegram-plus-apk-${{ github.ref }}
+  # One build per branch; a newer run for the same branch replaces the older one.
+  group: telegram-plus-apk-${{ inputs.ref || github.ref_name }}
   cancel-in-progress: true
+
+env:
+  BRANCH: ${{ inputs.ref || github.ref_name }}
 
 jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     outputs:
-      artifact: ${{ steps.name.outputs.artifact }}
-      branch: ${{ steps.name.outputs.branch }}
-      apk_name: ${{ steps.name.outputs.apk_name }}
+      sha: ${{ steps.meta.outputs.sha }}
+      branch: ${{ steps.meta.outputs.safe_branch }}
+      artifact: ${{ steps.meta.outputs.apk_name }}
+      apk_name: ${{ steps.meta.outputs.apk_name }}.apk
     env:
       TELEGRAM_PLUS_CCACHE: '1'
       CCACHE_DIR: ${{ github.workspace }}/.cache/tgplus-ccache
@@ -36,11 +47,24 @@ jobs:
       TELEGRAM_PLUS_API_HASH: ${{ secrets.TELEGRAM_PLUS_API_HASH }}
       TELEGRAM_PLUS_MAPS_API_KEY: ${{ secrets.TELEGRAM_PLUS_MAPS_API_KEY }}
     steps:
-      - name: Check out source and pinned submodules
+      - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          submodules: recursive
+          ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
+
+      # actions/checkout fetches ~20 submodules one at a time (~60s). Doing it here with
+      # --jobs takes ~15s. All submodules are public, so no credentials are needed.
+      - name: Fetch pinned submodules in parallel
+        shell: bash
+        run: |
+          fetch() { git -c protocol.version=2 submodule update --init --force --depth=1 --recursive --jobs 8; }
+          fetch || { echo "::warning::Submodule fetch failed, retrying once"; sleep 5; fetch; }
+          # '-' = not fetched, '+' = checked out at a commit other than the pinned one.
+          if git submodule status --recursive | grep -E '^[-+U]'; then
+            echo "::error::Some submodules are missing or not at their pinned commit."
+            exit 1
+          fi
 
       - name: Set up Java 17
         uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
@@ -48,27 +72,54 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      # Cheap checks run first so a bad commit or missing secret fails in seconds,
+      # before the SDK download and the native build.
+      - name: Run unit tests
+        shell: bash
+        run: |
+          # -sourcepath compiles only the app classes each test imports, and every
+          # tests/telegram-plus/*Test.java is run, so no per-branch test list is needed.
+          out="$RUNNER_TEMP/tgplus-tests"
+          mkdir -p "$out"
+          javac -d "$out" -sourcepath TMessagesProj/src/main/java tests/telegram-plus/*Test.java
+          for src in tests/telegram-plus/*Test.java; do
+            java -cp "$out" "$(basename "$src" .java)"
+          done
+          python3 tools/test_push_diagnostics.py
+
+      - name: Restore and verify signing key privately
+        env:
+          SIGNING_BUNDLE: ${{ secrets.TELEGRAM_PLUS_SIGNING_BUNDLE_BASE64 }}
+        run: python3 tools/prepare_signing.py
+
+      - name: Compute build name
+        id: meta
+        shell: bash
+        run: |
+          safe_branch=$(printf '%s' "$BRANCH" | tr -c 'A-Za-z0-9._-' '-')
+          sha=$(git rev-parse HEAD)
+          version=$(sed -n 's/^APP_VERSION_NAME=//p' gradle.properties | tr -c 'A-Za-z0-9._-' '-' | sed 's/-*$//')
+          # Unique per build, so phones save each download under its own name.
+          # The in-app updater parses this exact pattern.
+          {
+            echo "sha=$sha"
+            echo "safe_branch=$safe_branch"
+            echo "apk_name=TelegramPlus-${version}-${safe_branch}-build${GITHUB_RUN_NUMBER}-${sha::7}"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Set up Gradle 8.13
         uses: gradle/actions/setup-gradle@48b5f213c81028ace310571dc5ec0fbbca0b2947
         with:
           gradle-version: '8.13'
-          # Cache Gradle's transforms and build cache so unchanged libraries are not
-          # re-dexed on every run; every branch may write so feature branches stay fast.
+          # Caches downloaded dependencies, transforms and the build cache.
+          # Every branch may write so feature branches stay fast.
           cache-read-only: false
-
-      - name: Restore downloaded Gradle dependencies
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
-        with:
-          path: ~/.gradle/caches/modules-2
-          key: tgplus-dependencies-${{ runner.os }}-v1-${{ hashFiles('**/*.gradle', 'gradle.properties', '.gitmodules') }}
-          restore-keys: |
-            tgplus-dependencies-${{ runner.os }}-v1-
 
       - name: Restore native compiler cache
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: .cache/tgplus-ccache
-          key: tgplus-native-${{ runner.os }}-ndk27-v1-${{ github.sha }}
+          key: tgplus-native-${{ runner.os }}-ndk27-v1-${{ steps.meta.outputs.sha }}
           restore-keys: |
             tgplus-native-${{ runner.os }}-ndk27-v1-
 
@@ -81,43 +132,16 @@ jobs:
       - name: Install Android build dependencies
         shell: bash
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends ninja-build nasm yasm pkg-config autoconf automake libtool ccache
+          # apt packages and the SDK/NDK download are independent, so run them together.
+          (
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends ninja-build nasm yasm pkg-config autoconf automake libtool ccache
+          ) &
+          apt_pid=$!
           sdkmanager "platforms;android-36" "platforms;android-35" "build-tools;36.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
+          wait "$apt_pid"
           printf 'sdk.dir=%s\n' "$ANDROID_HOME" > local.properties
           ccache --zero-stats
-
-      - name: Run camera and formatting checks
-        shell: bash
-        run: |
-          mkdir -p "$RUNNER_TEMP/tgplus-tests"
-          javac -d "$RUNNER_TEMP/tgplus-tests" \
-            TMessagesProj/src/main/java/org/telegram/messenger/camera/RoundCameraWarmup.java \
-            TMessagesProj/src/main/java/org/telegram/messenger/camera/RoundFpsSelector.java \
-            TMessagesProj/src/main/java/org/telegram/messenger/camera/RoundStreamSelector.java \
-            TMessagesProj/src/main/java/org/telegram/messenger/utils/FormattingMarkers.java \
-            tests/telegram-plus/*Test.java
-          for test in FormattingMarkersTest RoundCameraWarmupTest RoundFpsSelectorTest RoundStreamSelectorTest; do
-            java -cp "$RUNNER_TEMP/tgplus-tests" "$test"
-          done
-
-      - name: Check local notification diagnostics
-        run: python3 tools/test_push_diagnostics.py
-
-      - name: Restore and verify signing key privately
-        env:
-          SIGNING_BUNDLE: ${{ secrets.TELEGRAM_PLUS_SIGNING_BUNDLE_BASE64 }}
-        run: python3 tools/prepare_signing.py
-
-      - name: Explain API credential status
-        shell: bash
-        run: |
-          if [ -z "$TELEGRAM_PLUS_API_ID" ] || [ -z "$TELEGRAM_PLUS_API_HASH" ]; then
-            echo "::notice::Using Telegram public upstream sample API credentials for this personal test build."
-            echo "### Personal test APK: upstream sample API credentials included." >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "### Telegram API credentials supplied from repository secrets." >> "$GITHUB_STEP_SUMMARY"
-          fi
 
       - name: Compile standalone ARM64 APK
         run: >-
@@ -127,7 +151,7 @@ jobs:
           -PRELEASE_KEY_PASSWORD=unused
           -PRELEASE_KEY_ALIAS=unused
 
-      - name: Verify compiled API configuration
+      - name: Verify API configuration, Firebase, signature and package
         shell: bash
         run: |
           python3 - <<'PY'
@@ -141,20 +165,21 @@ jobs:
           api_hash = re.search(r'TELEGRAM_PLUS_API_HASH\s*=\s*"([a-fA-F0-9]{32})"\s*;', source)
           if not api_id or int(api_id.group(1)) < 1 or not api_hash:
               raise SystemExit('Generated Telegram API configuration is empty or invalid.')
+          summary = Path(os.environ['GITHUB_STEP_SUMMARY'])
           if not os.environ.get('TELEGRAM_PLUS_API_ID') and not os.environ.get('TELEGRAM_PLUS_API_HASH'):
               if api_id.group(1) != '4' or api_hash.group(1) != '014b35b6184100b085b0d0572f9b5103':
                   raise SystemExit('Upstream public test defaults were not compiled correctly.')
+              note = 'Personal test APK: upstream sample API credentials included.'
+              print('::notice::' + note)
+          else:
+              note = 'Telegram API credentials supplied from repository secrets.'
+          with summary.open('a') as out:
+              out.write('### ' + note + '\n')
           print('Compiled Telegram API configuration verified; values are not logged.')
           PY
-
-      - name: Verify compiled Firebase configuration
-        run: python3 tools/verify_firebase_apk.py
-
-      - name: Verify APK signature and package
-        shell: bash
-        run: |
+          python3 tools/verify_firebase_apk.py
           python3 - <<'PY'
-          import glob, os, re, subprocess
+          import glob, os, subprocess
           from pathlib import Path
           files = glob.glob('TMessagesProj_AppStandalone/build/outputs/apk/afat/debug/*.apk')
           if len(files) != 1:
@@ -188,25 +213,10 @@ jobs:
         shell: bash
         run: rm -rf "$RUNNER_TEMP/tgplus-signing"
 
-      - name: Name artifact after branch and commit
-        id: name
-        shell: bash
-        env:
-          BRANCH: ${{ github.ref_name }}
-        run: |
-          safe_branch=$(printf '%s' "$BRANCH" | tr -c 'A-Za-z0-9._-' '-')
-          echo "ARTIFACT_NAME=Telegram-Plus-ARM64-${{ github.run_number }}-${safe_branch}-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
-          echo "artifact=Telegram-Plus-ARM64-${{ github.run_number }}-${safe_branch}-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
-          echo "branch=${safe_branch}" >> "$GITHUB_OUTPUT"
-          version=$(sed -n 's/^APP_VERSION_NAME=//p' gradle.properties | tr -c 'A-Za-z0-9._-' '-' | sed 's/-*$//')
-          # Unique per build, so phones save each download under its own name instead of
-          # "Telegram_Plus (1).apk", "Telegram_Plus (2).apk", ...
-          echo "apk_name=TelegramPlus-${version}-${safe_branch}-build${{ github.run_number }}-${GITHUB_SHA::7}.apk" >> "$GITHUB_OUTPUT"
-
       - name: Upload signed APK
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ${{ env.ARTIFACT_NAME }}
+          name: ${{ steps.meta.outputs.apk_name }}
           path: apk-artifact/Telegram_Plus.apk
           if-no-files-found: error
           compression-level: 0
@@ -220,7 +230,7 @@ jobs:
     permissions:
       contents: write
     concurrency:
-      group: telegram-plus-release-${{ github.ref }}
+      group: telegram-plus-release-${{ inputs.ref || github.ref_name }}
       cancel-in-progress: false
     steps:
       - name: Download verified APK
@@ -234,15 +244,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          BRANCH: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           SAFE_BRANCH: ${{ needs.build.outputs.branch }}
           APK_NAME: ${{ needs.build.outputs.apk_name }}
+          SHA: ${{ needs.build.outputs.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
           tag="build-${SAFE_BRANCH}"
           cp apk/Telegram_Plus.apk "$APK_NAME"
-          notes="Latest signed build of branch \`${BRANCH}\` (commit ${GITHUB_SHA::7}, run #${GITHUB_RUN_NUMBER}).
+          notes="Latest signed build of branch \`${BRANCH}\` (commit ${SHA::7}, run #${GITHUB_RUN_NUMBER}).
 
           Package org.patrick.tgplus.web, signed with the permanent Telegram Plus key. Installs as an update.
 
@@ -250,14 +261,14 @@ jobs:
           # One rolling release per branch: replace the previous build of this branch.
           gh release delete "$tag" --cleanup-tag --yes 2>/dev/null || true
           flags=(--prerelease)
-          if [ "$BRANCH" = "${{ github.event.repository.default_branch }}" ]; then flags=(--latest); fi
+          if [ "$BRANCH" = "$DEFAULT_BRANCH" ]; then flags=(--latest); fi
           gh release create "$tag" "$APK_NAME" \
-            --target "$GITHUB_SHA" \
+            --target "$SHA" \
             --title "Telegram Plus (${BRANCH}) - build #${GITHUB_RUN_NUMBER}" \
             --notes "$notes" \
             "${flags[@]}"
-          url="${{ github.server_url }}/${GH_REPO}/releases/download/${tag}/${APK_NAME}"
-          page="${{ github.server_url }}/${GH_REPO}/releases/tag/${tag}"
+          url="${GITHUB_SERVER_URL}/${GH_REPO}/releases/download/${tag}/${APK_NAME}"
+          page="${GITHUB_SERVER_URL}/${GH_REPO}/releases/tag/${tag}"
           echo "### APK download: ${url}" >> "$GITHUB_STEP_SUMMARY"
           echo "Always-current page for this branch: ${page}" >> "$GITHUB_STEP_SUMMARY"
           echo "Published ${url}"
