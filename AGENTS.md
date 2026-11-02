@@ -61,3 +61,33 @@ fails, and re-running it fails the same way.
 - Build a branch tip (leave `ref` blank or give a branch name), not an older SHA.
 - Do not push workflow changes to that branch until the run has finished.
 - If it happened anyway, start a new run on the current tip.
+
+## Keep master up to date
+
+This is a solo project, so `master` is the one source of truth and must always hold the
+latest finished work. A branch exists only for work in progress.
+
+- Branch from the latest `master` (`git pull` first), never from another feature branch.
+- When a feature is done, open a PR and merge it into `master` promptly. Do not leave
+  finished work sitting on a branch.
+- Right after merging, delete the branch on GitHub and locally, and delete its
+  `build-<branch>` release and tag.
+- Do not leave a branch that is fully merged ("0 ahead of master"). Delete it.
+- While a branch is open, merge `master` into it regularly so it does not drift
+  (a branch 70 commits behind is mostly conflicts).
+- Do not commit directly to `master`. Use a branch and a PR so the build can be checked first.
+- If unfinished work must be shelved, tag it (`git tag archive/<name> <branch>` and push the
+  tag) and delete the branch, so nothing is lost and no stale branch remains.
+- `master` must build. Run the local checks above before merging.
+
+### Cleanup checklist after a merge
+
+```sh
+git push origin --delete <branch>
+git branch -d <branch>
+gh release delete build-<branch> --cleanup-tag --yes   # if a build of it was published
+```
+
+Merged branches also leave GitHub Actions caches behind (they count against the 10 GB
+repository limit). List them with `gh api repos/pitdapat/TG-plus/actions/caches` and delete
+the ones whose `ref` is a deleted branch.
