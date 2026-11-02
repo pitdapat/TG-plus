@@ -146,6 +146,9 @@ Goal: hold to dictate, see a small waveform in the input field, release to get e
 - **Errors:** model not downloaded → offer download; no mic permission → request it; empty result → short hint.
 - Mic permission: reuse the existing `RECORD_AUDIO` request flow from `ChatActivityEnterView`.
 
+### 5.5.1 Dictation (implemented)
+`TgPlusDictationController` (hold-to-dictate), `TgPlusDictationStrip` (red dot, timer, waveform, slide hint) and `TgPlusDictationRecorder` (16 kHz mono `AudioRecord`, 2 minute cap). The button sits left of the emoji button in `ChatActivityEnterView`; the emoji button, message field and rich-draft preview shift right by 40 dp while it is shown. It follows the emoji button's alpha, scale and horizontal translation. Slide left 110 dp to cancel; a hold under 0.5 s shows a hint. The text is inserted at the cursor with a leading space when needed. Long recordings are recognized in 30 s pieces (`AudioChunker`).
+
 ### 5.6 Behavior when the server route fails
 No fallback. If a Premium server request fails under "Automatic", show Telegram's normal error. (Single-user build; revisit if others use it.)
 

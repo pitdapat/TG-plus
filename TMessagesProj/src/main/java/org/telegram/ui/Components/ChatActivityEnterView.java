@@ -606,6 +606,9 @@ public class ChatActivityEnterView extends FrameLayout implements
     private ActionBarPopupWindow.ActionBarPopupWindowLayout sendPopupLayout;
     private ImageView cancelBotButton;
     private ChatActivityEnterViewAnimatedIconView emojiButton;
+    // Telegram Plus: hold-to-dictate button left of the emoji button
+    private ImageView tgplusDictationButton;
+    private TgPlusDictationController tgplusDictation;
     private ImageView deleteRichDraftButton;
     @Nullable
     private ImageView expandStickersButton;
@@ -2759,6 +2762,7 @@ public class ChatActivityEnterView extends FrameLayout implements
         });
         messageEditTextContainer.addView(emojiButton, LayoutHelper.createFrame(DEFAULT_HEIGHT, DEFAULT_HEIGHT, Gravity.BOTTOM | Gravity.LEFT, 2, 0, 0, 0));
         setEmojiButtonImage(false, false);
+        createTgPlusDictationButton(context);
 
         deleteRichDraftButton = new ImageView(context);
         deleteRichDraftButton.setScaleType(ImageView.ScaleType.CENTER);
@@ -4620,6 +4624,7 @@ public class ChatActivityEnterView extends FrameLayout implements
 
     public void setBotWebViewButtonOffsetX(float offset) {
         emojiButton.setTranslationX(offset);
+        if (tgplusDictationButton != null) tgplusDictationButton.setTranslationX(offset);
         if (messageEditText != null) {
             messageTextTranslationX = offset;
             updateMessageTextParams();
@@ -6502,6 +6507,7 @@ public class ChatActivityEnterView extends FrameLayout implements
     }
 
     public void onDestroy() {
+        if (tgplusDictation != null) tgplusDictation.destroy();
         if (delegate != null) delegate.cancelRoundCameraPreparation();
         AndroidUtilities.cancelRunOnUIThread(recordAudioVideoRunnable);
         CameraController.getInstance().cancelOnInitRunnable(onFinishInitCameraRunnable);
@@ -14581,6 +14587,7 @@ public class ChatActivityEnterView extends FrameLayout implements
                 ((MarginLayoutParams) richDraftPreview.getLayoutParams()).leftMargin = dp(50);
             }
         }
+        applyTgPlusDictationLayout();
         updateBotCommandsMenuContainerTopPadding();
         super.onMeasure(widthMeasureSpec, heightMeasureSpec);
 
@@ -14746,6 +14753,7 @@ public class ChatActivityEnterView extends FrameLayout implements
         emojiButtonPaddingAlpha = progress;
         updateEmojiButtonParams();
         emojiButton.setTranslationX(-leftPadding);
+        if (tgplusDictationButton != null) tgplusDictationButton.setTranslationX(-leftPadding);
         messageTextPaddingTranslationX = -leftPadding - (messageEditText == null ? 0 : dp(40) + (senderSelectView != null && senderSelectView.getVisibility() == View.VISIBLE ? dp(18) : 0)) * (1f - progress);
         if (recordDeleteImageView != null) {
             recordDeleteImageView.setTranslationX(-leftPadding);
@@ -14834,10 +14842,98 @@ public class ChatActivityEnterView extends FrameLayout implements
         ) : 0));
     }
 
+    private static final int TGPLUS_DICTATION_WIDTH = 40;
+
+    private void createTgPlusDictationButton(Context context) {
+        tgplusDictationButton = new ImageView(context);
+        tgplusDictationButton.setScaleType(ImageView.ScaleType.CENTER);
+        tgplusDictationButton.setImageResource(R.drawable.input_mic);
+        tgplusDictationButton.setColorFilter(new PorterDuffColorFilter(getThemedColor(Theme.key_glass_defaultIcon), PorterDuff.Mode.SRC_IN));
+        tgplusDictationButton.setBackground(Theme.createInsetRoundRectDrawable(getThemedColor(Theme.key_listSelector), dp(19), dp(1), dp(3)));
+        tgplusDictationButton.setContentDescription(getString(R.string.TgPlusDictationDescription));
+        tgplusDictationButton.setVisibility(View.GONE);
+        messageEditTextContainer.addView(tgplusDictationButton, LayoutHelper.createFrame(TGPLUS_DICTATION_WIDTH, DEFAULT_HEIGHT, Gravity.BOTTOM | Gravity.LEFT, 2, 0, 0, 0));
+        tgplusDictation = new TgPlusDictationController(new TgPlusDictationController.Host() {
+            @Override
+            public Activity activity() {
+                return parentActivity;
+            }
+
+            @Override
+            public BaseFragment fragment() {
+                return parentFragment;
+            }
+
+            @Override
+            public Theme.ResourcesProvider resourcesProvider() {
+                return resourcesProvider;
+            }
+
+            @Override
+            public FrameLayout stripContainer() {
+                return messageEditTextContainer;
+            }
+
+            @Override
+            public void setFieldCovered(boolean covered) {
+                if (messageEditText != null && !richDraftActive) {
+                    messageEditText.setVisibility(covered ? View.INVISIBLE : View.VISIBLE);
+                }
+                if (!richDraftActive) {
+                    emojiButton.setVisibility(covered ? View.INVISIBLE : View.VISIBLE);
+                }
+            }
+
+            @Override
+            public void insertDictatedText(String text) {
+                if (messageEditText == null) return;
+                int start = Math.max(0, messageEditText.getSelectionStart());
+                int end = Math.max(start, messageEditText.getSelectionEnd());
+                CharSequence current = messageEditText.getText();
+                String insert = text;
+                if (start > 0 && start <= current.length() && !Character.isWhitespace(current.charAt(start - 1))) {
+                    insert = " " + insert;
+                }
+                replaceWithText(start, end - start, insert, true);
+            }
+        }, tgplusDictationButton);
+        tgplusDictationButton.setOnTouchListener((v, event) -> tgplusDictation.onTouch(event));
+    }
+
+    /**
+     * Makes room for the dictation button to the left of the emoji button. The margins are rewritten from
+     * scratch on every measure, so adding the offset here is safe to repeat.
+     */
+    private void applyTgPlusDictationLayout() {
+        if (tgplusDictationButton == null) return;
+        boolean show = org.telegram.messenger.tgplus.TgPlusSettings.isDictationEnabled() && !richDraftActive;
+        int visibility = show ? View.VISIBLE : View.GONE;
+        if (tgplusDictationButton.getVisibility() != visibility && !(tgplusDictation != null && tgplusDictation.isBusy())) {
+            tgplusDictationButton.setVisibility(visibility);
+        }
+        if (!show) return;
+        int width = dp(TGPLUS_DICTATION_WIDTH);
+        MarginLayoutParams emoji = (MarginLayoutParams) emojiButton.getLayoutParams();
+        MarginLayoutParams dictation = (MarginLayoutParams) tgplusDictationButton.getLayoutParams();
+        dictation.leftMargin = emoji.leftMargin;
+        emoji.leftMargin += width;
+        if (messageEditText != null) {
+            ((MarginLayoutParams) messageEditText.getLayoutParams()).leftMargin += width;
+        }
+        if (richDraftPreview != null) {
+            ((MarginLayoutParams) richDraftPreview.getLayoutParams()).leftMargin += width;
+        }
+    }
+
     private void updateEmojiButtonParams() {
         emojiButton.setScaleX(emojiButtonPaddingScale * emojiButtonScale);
         emojiButton.setScaleY(emojiButtonPaddingScale * emojiButtonScale);
         emojiButton.setAlpha(emojiButtonPaddingAlpha * emojiButtonAlpha);
+        if (tgplusDictationButton != null) {
+            tgplusDictationButton.setScaleX(emojiButtonPaddingScale * emojiButtonScale);
+            tgplusDictationButton.setScaleY(emojiButtonPaddingScale * emojiButtonScale);
+            tgplusDictationButton.setAlpha(emojiButtonPaddingAlpha * emojiButtonAlpha);
+        }
     }
 
     public void setOverrideHint(CharSequence overrideHint) {
