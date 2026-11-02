@@ -150,6 +150,9 @@ public class MediaController implements AudioManager.OnAudioFocusChangeListener,
 
     public static native int isOpusFile(String path);
 
+    /** Telegram Plus: decodes an Ogg Opus voice note to 16 kHz mono PCM, or null if it cannot. */
+    public static native short[] decodeOpusTo16k(String path);
+
     public static native byte[] getWaveform(String path);
 
     public native byte[] getWaveform2(short[] array, int length);

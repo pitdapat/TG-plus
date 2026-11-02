@@ -159,7 +159,20 @@ public class TgPlusDiagnosticsActivity extends UniversalFragment {
         TgPlusSelfTests.run(getParentActivity(), id, () -> {
             running.remove(id);
             if (fragmentView != null) listView.adapter.update(true);
+            showHeardText();
         });
+    }
+
+    /** Shows what the dictation test heard once, then forgets it. The text is never stored. */
+    private void showHeardText() {
+        String heard = TgPlusSelfTests.lastDictationText;
+        TgPlusSelfTests.lastDictationText = null;
+        if (heard == null || heard.isEmpty() || fragmentView == null || getParentActivity() == null) return;
+        showDialog(new AlertDialog.Builder(getParentActivity(), getResourceProvider())
+                .setTitle(getString(R.string.TgPlusDictationHeard))
+                .setMessage(heard)
+                .setPositiveButton(getString(R.string.OK), null)
+                .create());
     }
 
     private void runAll() {
@@ -171,6 +184,7 @@ public class TgPlusDiagnosticsActivity extends UniversalFragment {
         }, () -> {
             runningAll = false;
             if (fragmentView != null) listView.adapter.update(true);
+            showHeardText();
         });
     }
 

@@ -58,3 +58,5 @@
 # Use -keep to explicitly keep any other classes shrinking would remove
 #-dontoptimize
 #-dontobfuscate
+# sherpa-onnx: native code reads/writes these Kotlin classes by field name
+-keep class com.k2fsa.sherpa.onnx.** { *; }

@@ -12666,6 +12666,8 @@ public class ChatMessageCell extends BaseCell implements SeekBar.SeekBarDelegate
             (
                 UserConfig.getInstance(currentAccount).isPremium()
                 ||
+                org.telegram.messenger.tgplus.TgPlusVoiceTranscriber.useOnDevice(currentMessageObject)
+                ||
                 TranscribeButton.isFreeTranscribeInChat(currentMessageObject)
                 ||
                 MessagesController.getInstance(currentAccount).transcribeAudioTrialWeeklyNumber > 0 &&

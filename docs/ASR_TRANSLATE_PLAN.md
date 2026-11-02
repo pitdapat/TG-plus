@@ -98,10 +98,21 @@ Files: `ui/Components/ChatActivityEnterView.java` (touch handler around line 299
 ### 5.2 Spike (gate before UI work)
 On an arm64 device: load the model with sherpa-onnx, transcribe a fixed voice note and a 30 s mic clip; record download size, peak RAM, and time per second of audio. Go/no-go; fallback is Whisper via whisper.cpp.
 
+### 5.2.1 Spike implementation (branch `feature/parakeet-spike`)
+- Library: official sherpa-onnx 2.0.1 AAR, fetched at build time by `TMessagesProj/gradle/sherpa-onnx.gradle` and checked against a pinned SHA-256 (not on Maven Central; 31 MB of arm64 libraries are not committed). Needs the Kotlin runtime the app already has. Native libraries are 16 KB aligned.
+- Model: int8 Parakeet TDT 0.6B v3 from the sherpa-onnx GitHub `asr-models` release (487 MB archive, 671 MB unpacked). Archive and each unpacked file are SHA-256 pinned in `ParakeetModel.java`. Hugging Face was not used because its checksums could not be verified from the build sandbox.
+- Download: resumable (HTTP Range), Wi-Fi-only by default, unpacked with commons-compress 1.25.0 into `filesDir/tgplus/asr/` (excluded from backup), atomic folder swap, `.verified` marker.
+- Engine: loads lazily, releases after 60 s idle, refuses to load when available memory is under 1600 MB.
+- Reference numbers (desktop x86, 8 cores): load 2.2 s, peak RSS about 1.06 GB, 10-16x real time. Phone numbers come from the Speech model and Dictation self-tests.
+- Nemotron 3.5 multilingual streaming now has official sherpa-onnx Android builds; a candidate for live dictation later, outside this spike.
+
 ### 5.3 Audio input
 - Parakeet expects **16 kHz mono float PCM**.
 - Voice notes: decode the Opus file with the in-tree Opus code, resample to 16 kHz. The file must be downloaded first; if not, download it, then transcribe.
 - Dictation: separate `AudioRecord` at 16 kHz mono (Section 5.5). Do not reuse `MediaController`'s recorder, which is tied to sending voice messages.
+
+### 5.3.1 Voice-note decoding (implemented)
+`MediaController.decodeOpusTo16k` (JNI in `jni/audio.c`, uses the opusfile library already in the app) decodes an Ogg Opus voice note to 16 kHz mono. `AudioChunker` cuts anything over 30 s at the quietest point in the last 5 s of each piece; the pieces are recognized in order and joined. Limit: 20 minutes. Round videos are handled too: `TgPlusAudioDecoder` reads their audio track with the phone's own MediaExtractor/MediaCodec and `PcmConverter` converts it to 16 kHz mono.
 
 ### 5.4 Feature 1: Transcription routing
 Setting **"Voice transcription"** (3 options):

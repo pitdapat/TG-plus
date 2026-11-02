@@ -556,6 +556,88 @@ JNIEXPORT jint Java_org_telegram_messenger_MediaController_isOpusFile(JNIEnv *en
     return result;
 }
 
+// Telegram Plus: decodes an Ogg Opus voice note to 16 kHz mono 16-bit samples for on-device speech
+// recognition. Opus decodes at 48 kHz, so every 3 samples (all channels averaged) become one.
+// Returns null if the file cannot be decoded or is longer than 60 minutes.
+JNIEXPORT jshortArray Java_org_telegram_messenger_MediaController_decodeOpusTo16k(JNIEnv *env, jclass class, jstring path) {
+    const char *pathStr = (*env)->GetStringUTFChars(env, path, 0);
+    if (pathStr == NULL) {
+        return NULL;
+    }
+    int32_t error = OPUS_OK;
+    OggOpusFile *file = op_open_file(pathStr, &error);
+    (*env)->ReleaseStringUTFChars(env, path, pathStr);
+    if (file == NULL || error != OPUS_OK) {
+        if (file != NULL) {
+            op_free(file);
+        }
+        return NULL;
+    }
+
+    const int32_t maxChannels = 8;
+    const int32_t maxFrame = 5760; // 120 ms at 48 kHz, the largest block op_read returns per channel
+    opus_int64 total = op_pcm_total(file, -1);
+    if (total <= 0 || total > 48000LL * 60 * 60) {
+        op_free(file);
+        return NULL;
+    }
+    size_t capacity = (size_t) (total / 3) + 4;
+    jshort *out = (jshort *) malloc(capacity * sizeof(jshort));
+    opus_int16 *buffer = (opus_int16 *) malloc((size_t) maxFrame * maxChannels * sizeof(opus_int16));
+    if (out == NULL || buffer == NULL) {
+        free(out);
+        free(buffer);
+        op_free(file);
+        return NULL;
+    }
+
+    size_t count = 0;
+    int32_t sum = 0;
+    int32_t summed = 0;
+    int32_t failed = 0;
+    while (1) {
+        int32_t read = op_read(file, buffer, maxFrame * maxChannels, NULL);
+        if (read < 0) {
+            failed = 1;
+            break;
+        }
+        if (read == 0) {
+            break;
+        }
+        int32_t channels = op_channel_count(file, -1);
+        if (channels < 1 || channels > maxChannels) {
+            failed = 1;
+            break;
+        }
+        for (int32_t i = 0; i < read; i++) {
+            int32_t mono = 0;
+            for (int32_t c = 0; c < channels; c++) {
+                mono += buffer[i * channels + c];
+            }
+            sum += mono / channels;
+            if (++summed == 3) {
+                if (count < capacity) {
+                    out[count++] = (jshort) (sum / 3);
+                }
+                sum = 0;
+                summed = 0;
+            }
+        }
+    }
+
+    jshortArray result = NULL;
+    if (!failed && count > 0) {
+        result = (*env)->NewShortArray(env, (jsize) count);
+        if (result != NULL) {
+            (*env)->SetShortArrayRegion(env, result, 0, (jsize) count, out);
+        }
+    }
+    free(out);
+    free(buffer);
+    op_free(file);
+    return result;
+}
+
 static inline void set_bits(uint8_t *bytes, int32_t bitOffset, int32_t value) {
     bytes += bitOffset / 8;
     bitOffset %= 8;

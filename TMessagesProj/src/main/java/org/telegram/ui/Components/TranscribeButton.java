@@ -27,6 +27,10 @@ import androidx.core.graphics.ColorUtils;
 import androidx.core.math.MathUtils;
 import androidx.interpolator.view.animation.FastOutSlowInInterpolator;
 
+import org.telegram.messenger.tgplus.TgPlusVoiceTranscriber;
+import org.telegram.ui.ActionBar.BaseFragment;
+import org.telegram.ui.LaunchActivity;
+import org.telegram.ui.TgPlusSpeechErrors;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.BuildVars;
 import org.telegram.messenger.ChatObject;
@@ -207,9 +211,10 @@ public class TranscribeButton {
         }
         clickedToOpen = false;
         boolean processClick, toOpen = !shouldBeOpen;
+        final boolean onDevice = TgPlusVoiceTranscriber.useOnDevice(parent.getMessageObject());
         if (!shouldBeOpen) {
             processClick = !loading;
-            if ((premium || canTranscribeTrial(parent.getMessageObject())) && parent.getMessageObject().isSent()) {
+            if ((premium || onDevice || canTranscribeTrial(parent.getMessageObject())) && parent.getMessageObject().isSent()) {
                 setLoading(true, true);
             }
         } else {
@@ -223,7 +228,7 @@ public class TranscribeButton {
         }
         pressed = false;
         if (processClick) {
-            if (!premium && toOpen) {
+            if (!premium && !onDevice && toOpen) {
                 if (canTranscribeTrial(parent.getMessageObject()) || parent.getMessageObject() != null && parent.getMessageObject().messageOwner != null && !TextUtils.isEmpty(parent.getMessageObject().messageOwner.voiceTranscription)) {
                     transcribePressed(parent.getMessageObject(), toOpen, parent.getDelegate());
                 } else {
@@ -683,6 +688,8 @@ public class TranscribeButton {
                 AndroidUtilities.runOnUIThread(() -> {
                     NotificationCenter.getInstance(account).postNotificationName(NotificationCenter.voiceTranscriptionUpdate, messageObject, null, null, (Boolean) true, (Boolean) true);
                 });
+            } else if (TgPlusVoiceTranscriber.useOnDevice(messageObject)) {
+                transcribeOnDevice(messageObject, dialogId, messageId, start, minDuration);
             } else {
                 if (BuildVars.LOGS_ENABLED) {
                     FileLog.d("sending Transcription request, msg_id=" + messageId + " dialog_id=" + dialogId);
@@ -774,6 +781,35 @@ public class TranscribeButton {
         }
     }
 
+    /** Telegram Plus: transcribes a voice message with the model on this phone instead of asking Telegram. */
+    private static void transcribeOnDevice(MessageObject messageObject, long dialogId, int messageId, long start, long minDuration) {
+        final int account = messageObject.currentAccount;
+        if (transcribeOperationsByDialogPosition == null) {
+            transcribeOperationsByDialogPosition = new HashMap<>();
+        }
+        transcribeOperationsByDialogPosition.put((Integer) reqInfoHash(messageObject), messageObject);
+        TgPlusVoiceTranscriber.transcribe(messageObject, (text, error) -> {
+            if (error != null || text == null) {
+                if (transcribeOperationsByDialogPosition != null) {
+                    transcribeOperationsByDialogPosition.remove((Integer) reqInfoHash(messageObject));
+                }
+                NotificationCenter.getInstance(account).postNotificationName(NotificationCenter.voiceTranscriptionUpdate, messageObject);
+                NotificationCenter.getInstance(account).postNotificationName(NotificationCenter.updateTranscriptionLock);
+                BaseFragment fragment = LaunchActivity.getSafeLastFragment();
+                if (fragment != null) {
+                    BulletinFactory.of(fragment).createErrorBulletin(TgPlusSpeechErrors.text(error)).show();
+                }
+                return;
+            }
+            openVideoTranscription(messageObject);
+            messageObject.messageOwner.voiceTranscriptionOpen = true;
+            messageObject.messageOwner.voiceTranscriptionFinal = true;
+            MessagesStorage.getInstance(account).updateMessageVoiceTranscription(dialogId, messageId, text, messageObject.messageOwner);
+            long duration = SystemClock.elapsedRealtime() - start;
+            AndroidUtilities.runOnUIThread(() -> finishTranscription(messageObject, 0, text), Math.max(0, minDuration - duration));
+        });
+    }
+
     public static boolean finishTranscription(MessageObject messageObject, long transcription_id, String text) {
         try {
             MessageObject messageObjectByTranscriptionId = null;
@@ -857,7 +893,7 @@ public class TranscribeButton {
         if (messageObject == null || messageObject.messageOwner == null) {
             return false;
         }
-        if (isFreeTranscribeInChat(messageObject)) {
+        if (isFreeTranscribeInChat(messageObject) || TgPlusVoiceTranscriber.useOnDevice(messageObject)) {
             return false;
         }
         if (!TextUtils.isEmpty(messageObject.messageOwner.voiceTranscription)) {
