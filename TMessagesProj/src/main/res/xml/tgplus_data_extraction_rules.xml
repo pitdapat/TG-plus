@@ -2,8 +2,20 @@
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="sharedpref" path="tgplus_push_diagnostics.xml" />
+        <exclude domain="sharedpref" path="tgplus_diagnostics.xml" />
+        <exclude domain="sharedpref" path="tgplus_secure.xml" />
+        <exclude domain="sharedpref" path="tgplus_inline_translations.xml" />
+        <exclude domain="file" path="tgplus_diagnostics/" />
+        <exclude domain="file" path="cache/tgplus-update/" />
+        <exclude domain="file" path="cache/tgplus-diagnostics/" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="tgplus_push_diagnostics.xml" />
+        <exclude domain="sharedpref" path="tgplus_diagnostics.xml" />
+        <exclude domain="sharedpref" path="tgplus_secure.xml" />
+        <exclude domain="sharedpref" path="tgplus_inline_translations.xml" />
+        <exclude domain="file" path="tgplus_diagnostics/" />
+        <exclude domain="file" path="cache/tgplus-update/" />
+        <exclude domain="file" path="cache/tgplus-diagnostics/" />
     </device-transfer>
 </data-extraction-rules>

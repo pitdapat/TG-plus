@@ -187,6 +187,8 @@ import org.telegram.messenger.SharedConfig;
 import org.telegram.messenger.SvgHelper;
 import org.telegram.messenger.Timer;
 import org.telegram.messenger.TranslateController;
+import org.telegram.messenger.tgplus.TgPlusInlineTranslations;
+import org.telegram.messenger.tgplus.TgPlusUiSpeed;
 import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.UserObject;
 import org.telegram.messenger.Utilities;
@@ -898,6 +900,8 @@ public class ChatActivity extends BaseFragment implements
     private boolean hideForwardEndReached;
     private boolean loading = true;
     private boolean firstLoading = true;
+    // Telegram Plus UI speed diagnostics: created with the chat so it can time the opening.
+    private final TgPlusUiSpeed.Chat tgplusSpeed = new TgPlusUiSpeed.Chat();
     private boolean chatWasReset;
     private boolean firstUnreadSent;
     private int loadsCount;
@@ -6829,6 +6833,16 @@ public class ChatActivity extends BaseFragment implements
         });
         chatListView.setOnItemLongClickListener(onItemLongClickListener);
         chatListView.setOnItemClickListener(onItemClickListener);
+        tgplusSpeed.attachScroll(chatListView, () -> {
+            for (int i = 0; i < chatListView.getChildCount(); i++) {
+                View child = chatListView.getChildAt(i);
+                if (child instanceof ChatMessageCell) {
+                    MessageObject shown = ((ChatMessageCell) child).getMessageObject();
+                    if (shown != null && shown.tgplusInlineApplied != null) return true;
+                }
+            }
+            return false;
+        });
         chatListView.setOnScrollListener(new RecyclerView.OnScrollListener() {
 
             private float totalDy = 0;
@@ -24630,7 +24644,9 @@ public class ChatActivity extends BaseFragment implements
             if (getDialogId() != messageObject.getDialogId()) {
                 return;
             }
-            updateMessageTranslation(messageObject, summary);
+            final long tgplusHandlerStart = SystemClock.elapsedRealtime();
+            final boolean tgplusRowUpdated = updateMessageTranslation(messageObject, summary);
+            TgPlusInlineTranslations.onApplied(messageObject, tgplusHandlerStart, tgplusRowUpdated);
             if (args.length > 2 && (boolean) args[2]) {
                 checkTranslation(true);
             }
@@ -30961,7 +30977,7 @@ public class ChatActivity extends BaseFragment implements
             return messageObject.getVoiceTranscription();
         }
         if (messageObject.caption != null) {
-            return messageObject.caption;
+            return MessageObject.stripInlineTranslation(messageObject, messageObject.caption);
         }
         if (group == null) {
             return null;
@@ -30973,7 +30989,7 @@ public class ChatActivity extends BaseFragment implements
                 if (caption != null) {
                     return null;
                 }
-                caption = message.caption;
+                caption = MessageObject.stripInlineTranslation(message, message.caption);
                 if (msgId != null) {
                     msgId[0] = message.getId();
                 }
@@ -32333,6 +32349,34 @@ public class ChatActivity extends BaseFragment implements
                         } else {
                             cell.setVisibility(View.GONE);
                         }
+                        // Telegram Plus: with Gemini, show the translation inside the bubble, under the
+                        // original. Visibility rules above (Show Translate Button, Do Not Translate) still apply.
+                        final MessageObject inlineTarget = richMessageToTranslate == null
+                            ? TgPlusInlineTranslations.findTarget(message, groupedMessages, messageIdToTranslate[0]) : null;
+                        if (inlineTarget != null && (TgPlusInlineTranslations.isAvailable() || TgPlusInlineTranslations.isShown(inlineTarget))) {
+                            final boolean inlineShown = TgPlusInlineTranslations.isShown(inlineTarget);
+                            if (inlineShown) {
+                                cell.setTextAndIcon(LocaleController.getString(R.string.TgPlusHideTranslation), R.drawable.msg_translate);
+                                cell.setVisibility(View.VISIBLE);
+                            }
+                            cell.setOnClickListener(e -> {
+                                if (selectedObject == null || i >= options.size() || getParentActivity() == null) {
+                                    return;
+                                }
+                                // No sheet opens here, so close the menu together with its dim overlay;
+                                // closeMenu(false) would leave the overlay blocking all touches.
+                                closeMenu();
+                                if (inlineShown) {
+                                    TgPlusInlineTranslations.hide(inlineTarget);
+                                } else {
+                                    TgPlusInlineTranslations.translate(inlineTarget, toLang, error -> {
+                                        if (getParentActivity() != null) {
+                                            BulletinFactory.of(this).createErrorBulletin(TgPlusTranslationErrors.text(error)).show();
+                                        }
+                                    });
+                                }
+                            });
+                        }
                     }
                 }
                 if (selectedObject != null && selectedObject.messageOwner != null && selectedObject.messageOwner.video_processing_pending) {
@@ -33512,9 +33556,9 @@ public class ChatActivity extends BaseFragment implements
         if (!TextUtils.isEmpty(restrictionReason)) {
             str.append(restrictionReason);
         } else if (messageObject.caption != null) {
-            str.append(messageObject.caption);
+            str.append(MessageObject.stripInlineTranslation(messageObject, messageObject.caption));
         } else {
-            str.append(messageObject.messageText);
+            str.append(MessageObject.stripInlineTranslation(messageObject, messageObject.messageText));
         }
         return str;
     }
@@ -37830,6 +37874,7 @@ public class ChatActivity extends BaseFragment implements
 
                 if (view instanceof ChatMessageCell) {
                     final ChatMessageCell messageCell = (ChatMessageCell) view;
+                    tgplusSpeed.messageBound(ChatActivity.this.messages);
                     MessageObject.GroupedMessages groupedMessages = getValidGroupedMessage(message);
                     messageCell.isChat = currentChat != null || UserObject.isUserSelf(currentUser) || UserObject.isReplyUser(currentUser) || (chatMode == MODE_SEARCH);
                     messageCell.setSponsoredMessageVisible(true, false);
@@ -38032,9 +38077,11 @@ public class ChatActivity extends BaseFragment implements
                         pinnedTop = false;
                     }
 
+                    message.tgplusInlineAllowed = true;
                     message.updateTranslation(false);
                     if (groupedMessages != null) {
                         for (int i = 0; i < groupedMessages.messages.size(); ++i) {
+                            groupedMessages.messages.get(i).tgplusInlineAllowed = true;
                             groupedMessages.messages.get(i).updateTranslation(false);
                         }
                     }

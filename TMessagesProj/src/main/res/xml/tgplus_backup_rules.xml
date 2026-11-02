@@ -1,4 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
     <exclude domain="sharedpref" path="tgplus_push_diagnostics.xml" />
+    <exclude domain="sharedpref" path="tgplus_diagnostics.xml" />
+    <exclude domain="sharedpref" path="tgplus_secure.xml" />
+    <exclude domain="sharedpref" path="tgplus_inline_translations.xml" />
+    <exclude domain="file" path="tgplus_diagnostics/" />
+    <exclude domain="file" path="cache/tgplus-update/" />
+    <exclude domain="file" path="cache/tgplus-diagnostics/" />
 </full-backup-content>

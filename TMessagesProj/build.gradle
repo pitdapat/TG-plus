@@ -154,6 +154,42 @@ android {
         }
         buildConfigField "int", "TELEGRAM_PLUS_API_ID", plusApiId
         buildConfigField "String", "TELEGRAM_PLUS_API_HASH", groovy.json.JsonOutput.toJson(plusApiHash)
+        // In-app updates compare against GitHub Releases published by the build workflow.
+        // Local builds get build number 0.
+        def plusBuildNumber = System.getenv("GITHUB_RUN_NUMBER") ?: "0"
+        if (!(plusBuildNumber ==~ /[0-9]{1,9}/)) {
+            plusBuildNumber = "0"
+        }
+        // tgplus-git-begin
+        // The branch and commit that are actually checked out. GITHUB_REF_NAME and GITHUB_SHA describe
+        // the workflow run, which is always master for manual builds, not the code being built (the
+        // workflow's "ref" input), so they are only a fallback when this is not a git checkout.
+        def gitText = { List<String> args ->
+            try {
+                def out = new StringBuilder()
+                def err = new StringBuilder()
+                def proc = (["git", "-C", rootProject.projectDir.absolutePath] + args).execute()
+                proc.waitForProcessOutput(out, err)
+                return proc.exitValue() == 0 ? out.toString().trim() : ""
+            } catch (Exception ignored) {
+                return ""
+            }
+        }
+        def plusInGit = gitText(["rev-parse", "--is-inside-work-tree"]) == "true"
+        def plusBranch = plusInGit ? gitText(["symbolic-ref", "--short", "-q", "HEAD"]) : (System.getenv("GITHUB_REF_NAME") ?: "")
+        def plusSha = plusInGit ? gitText(["rev-parse", "HEAD"]) : (System.getenv("GITHUB_SHA") ?: "")
+        if (!(plusSha ==~ /[0-9a-f]{40}/)) {
+            plusSha = ""
+        }
+        // tgplus-git-end
+        def plusRepository = System.getenv("GITHUB_REPOSITORY") ?: "pitdapat/TG-plus"
+        if (!(plusRepository ==~ /[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+/)) {
+            plusRepository = "pitdapat/TG-plus"
+        }
+        buildConfigField "int", "TELEGRAM_PLUS_BUILD_NUMBER", plusBuildNumber
+        buildConfigField "String", "TELEGRAM_PLUS_BRANCH", groovy.json.JsonOutput.toJson(plusBranch)
+        buildConfigField "String", "TELEGRAM_PLUS_GIT_SHA", groovy.json.JsonOutput.toJson(plusSha)
+        buildConfigField "String", "TELEGRAM_PLUS_REPOSITORY", groovy.json.JsonOutput.toJson(plusRepository)
         minSdkVersion 23
         ndk { abiFilters "arm64-v8a" }
         targetSdkVersion 36

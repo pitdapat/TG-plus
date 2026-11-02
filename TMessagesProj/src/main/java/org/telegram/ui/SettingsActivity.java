@@ -721,7 +721,7 @@ public class SettingsActivity extends BaseFragment implements NotificationCenter
         items.add(SettingCell.Factory.of(3, IconBackgroundColors.GREEN.top, IconBackgroundColors.GREEN.bottom, R.drawable.settings_privacy, getString(R.string.SettingsPrivacySecurity), getString(R.string.SettingsPrivacySecurityInfo)));
         items.add(SettingCell.Factory.of(5, IconBackgroundColors.RED.top, IconBackgroundColors.RED.bottom, R.drawable.settings_sounds, getString(R.string.SettingsNotifications), getString(R.string.SettingsNotificationsInfo)));
         items.add(SettingCell.Factory.of(1001, IconBackgroundColors.BLUE.top, IconBackgroundColors.BLUE.bottom,
-                R.drawable.settings_sounds, getString(R.string.PushDiagTitle)));
+                R.drawable.settings_features, getString(R.string.TgPlusTitle), getString(R.string.TgPlusSettingsInfo)));
         items.add(SettingCell.Factory.of(6, IconBackgroundColors.BLUE_DEEP.top, IconBackgroundColors.BLUE_DEEP.bottom, R.drawable.settings_data, getString(R.string.SettingsData), getString(R.string.SettingsDataInfo)));
         items.add(SettingCell.Factory.of(7, IconBackgroundColors.BLUE_ALT.top, IconBackgroundColors.BLUE_ALT.bottom, R.drawable.settings_folders, getString(R.string.SettingsFolders), getString(R.string.SettingsFoldersInfo)));
         items.add(SettingCell.Factory.of(8, IconBackgroundColors.CYAN.top, IconBackgroundColors.CYAN.bottom, R.drawable.settings_devices, getString(R.string.SettingsDevices), getString(R.string.SettingsDevicesInfo)));
@@ -914,7 +914,7 @@ public class SettingsActivity extends BaseFragment implements NotificationCenter
                 break;
             }
             case 1001: {
-                presentSettingFragment(new PushDiagnosticsActivity());
+                presentSettingFragment(new TelegramPlusSettingsActivity());
                 break;
             }
             case 24: {

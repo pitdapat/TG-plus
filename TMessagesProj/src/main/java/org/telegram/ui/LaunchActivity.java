@@ -7116,6 +7116,8 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                     layersActionBarLayout.onResume();
                 }
             }
+            // Telegram Plus: at most one GitHub release check per day, only when unlocked.
+            TgPlusUpdateFlow.maybeAutoCheck(this);
         } else {
             actionBarLayout.dismissDialogs();
             if (AndroidUtilities.isTablet()) {
