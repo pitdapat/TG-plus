@@ -19,6 +19,8 @@ import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.Utilities;
 import org.telegram.messenger.tgplus.asr.AsrEngine;
 import org.telegram.messenger.tgplus.asr.ParakeetEngine;
+import org.telegram.messenger.tgplus.asr.ParakeetModel;
+import org.telegram.messenger.tgplus.asr.ParakeetModelManager;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -216,8 +218,8 @@ public final class TgPlusDiagnostics {
         ArrayList<String> lines = new ArrayList<>();
         int route = TgPlusSettings.getTranscriptionRoute();
         lines.add("Voice transcription: " + (route == TgPlusSettings.TRANSCRIPTION_ON_DEVICE ? "always on-device"
-            : route == TgPlusSettings.TRANSCRIPTION_TELEGRAM ? "Telegram only" : "automatic") + " (on-device engine not built yet)");
-        lines.add("Dictation button: " + (TgPlusSettings.isDictationEnabled() ? "on" : "off") + " (not built yet)");
+            : route == TgPlusSettings.TRANSCRIPTION_TELEGRAM ? "Telegram only" : "automatic") + " (transcription buttons are not built yet; only the model can be tested)");
+        lines.add("Dictation button: " + (TgPlusSettings.isDictationEnabled() ? "on" : "off") + " (not built yet; only the model can be tested)");
         lines.add("Translation provider: " + (TgPlusSettings.getTranslationProvider() == TgPlusSettings.TRANSLATION_GEMINI ? "Gemini" : "Telegram"));
         lines.add("Gemini model: " + TgPlusSettings.getGeminiModel());
         lines.add("Gemini API key stored: " + (TgPlusSettings.hasGeminiKey() ? "yes" : "no"));
@@ -242,13 +244,34 @@ public final class TgPlusDiagnostics {
 
     private static List<String> speech(boolean full) {
         ArrayList<String> lines = new ArrayList<>();
-        AsrEngine engine = ParakeetEngine.getInstance();
+        ParakeetEngine engine = ParakeetEngine.getInstance();
+        ParakeetModelManager manager = ParakeetModelManager.getInstance();
         AsrEngine.Status status = engine.getStatus();
-        lines.add("Engine: " + engine.displayName() + " (" + engine.id() + ")");
-        lines.add("State: " + status.state.name() + (TextUtils.isEmpty(status.code) || status.code.equals(status.state.name()) ? "" : " (" + status.code + ")"));
+        lines.add("Engine: " + engine.displayName() + " (" + engine.id() + "), sherpa-onnx " + ParakeetModel.RUNTIME_VERSION);
+        lines.add("State: " + status.state.name() + (TextUtils.isEmpty(status.code) || status.code.equals(status.state.name()) ? "" : " (" + status.code + ")")
+            + (engine.isLoaded() ? ", model loaded in memory" : ""));
+        switch (manager.state()) {
+            case READY:
+                lines.add("Model: installed, " + AndroidUtilities.formatFileSize(manager.installedBytes()));
+                break;
+            case DOWNLOADING:
+            case UNPACKING:
+                lines.add("Model: " + manager.state().name().toLowerCase(Locale.US) + " " + manager.percent() + "%");
+                break;
+            case ERROR:
+                lines.add("Model: last attempt failed (" + manager.error() + ")" + (full && manager.errorDetail() != null ? " - " + manager.errorDetail() : ""));
+                break;
+            default:
+                lines.add("Model: not installed" + (manager.partialBytes() > 0 ? ", partial download " + AndroidUtilities.formatFileSize(manager.partialBytes()) : ""));
+        }
+        lines.add("Download: " + AndroidUtilities.formatFileSize(ParakeetModel.ARCHIVE_BYTES) + ", needs "
+            + AndroidUtilities.formatFileSize(ParakeetModel.requiredFreeBytes()) + " free while installing; Wi-Fi only: "
+            + (TgPlusSettings.isModelWifiOnly() ? "on" : "off"));
+        lines.add("Process memory now: " + ParakeetEngine.memoryMb() + " MB, highest so far: " + ParakeetEngine.peakMemoryMb() + " MB");
         if (full) {
-            lines.add("Model bytes on device: " + status.modelBytes);
-            lines.add("Expected model download: about " + AndroidUtilities.formatFileSize(ParakeetEngine.APPROX_MODEL_BYTES));
+            lines.add("Model folder: " + manager.dir().getAbsolutePath());
+            if (engine.errorDetail() != null) lines.add("Engine error detail: " + engine.errorDetail());
+            lines.add("Free storage for app data: " + AndroidUtilities.formatFileSize(ApplicationLoader.applicationContext.getFilesDir().getUsableSpace()));
         }
         return lines;
     }

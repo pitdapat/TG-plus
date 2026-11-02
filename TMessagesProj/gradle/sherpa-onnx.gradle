@@ -1,0 +1,98 @@
+// On-device speech recognition (Telegram Plus): sherpa-onnx's official Android AAR.
+//
+// It is not on Maven Central, and its arm64 native libraries alone are 31 MB, so the AAR is downloaded
+// once into the module's build directory and checked against a pinned SHA-256 instead of being committed.
+// A different file fails the build.
+//
+// Apply from an Android library module, after the Android plugin: apply from: 'gradle/sherpa-onnx.gradle'
+// Offline builds: put sherpa-onnx-<version>.aar into <module>/libs-cache/ and it is used instead.
+//
+// What it adds: the API classes (Kotlin, compiled to Java 8 bytecode; it needs the Kotlin runtime that the
+// app already ships) and libonnxruntime.so, libsherpa-onnx-jni.so and the C API libraries for arm64-v8a,
+// which are 16 KB page aligned.
+
+def sherpaVersion = '2.0.1'
+def sherpaSha256 = 'a8d09d1d32f3eb8520482c6d3d43fae674681c5b050385967c70a3c2c9bf0ee7'
+def sherpaUrl = "https://github.com/k2-fsa/sherpa-onnx/releases/download/v${sherpaVersion}/sherpa-onnx-${sherpaVersion}.aar"
+
+def sherpaDir = layout.buildDirectory.dir('sherpa-onnx').get().asFile
+def sherpaAar = new File(sherpaDir, "sherpa-onnx-${sherpaVersion}.aar")
+def sherpaUnpacked = new File(sherpaDir, 'unpacked')
+def sherpaCached = new File(projectDir, "libs-cache/sherpa-onnx-${sherpaVersion}.aar")
+
+def sherpaSha256Of = { File file ->
+    def digest = java.security.MessageDigest.getInstance('SHA-256')
+    file.withInputStream { stream ->
+        def buffer = new byte[1 << 16]
+        int read
+        while ((read = stream.read(buffer)) != -1) digest.update(buffer, 0, read)
+    }
+    return digest.digest().collect { String.format('%02x', it & 0xff) }.join()
+}
+
+def fetchTask = tasks.register('fetchSherpaOnnx') {
+    group = 'telegram plus'
+    description = "Downloads sherpa-onnx ${sherpaVersion} and verifies its SHA-256"
+    inputs.property('url', sherpaUrl)
+    inputs.property('sha256', sherpaSha256)
+    outputs.file(sherpaAar)
+    doLast {
+        sherpaDir.mkdirs()
+        if (sherpaAar.exists() && sherpaSha256Of(sherpaAar) == sherpaSha256) return
+        File source = sherpaCached
+        boolean downloaded = false
+        if (!sherpaCached.exists()) {
+            source = new File(sherpaDir, sherpaAar.name + '.part')
+            logger.lifecycle("Downloading ${sherpaUrl}")
+            def connection = new URL(sherpaUrl).openConnection()
+            connection.connectTimeout = 30000
+            connection.readTimeout = 120000
+            connection.setRequestProperty('User-Agent', 'TelegramPlus-build')
+            connection.inputStream.withStream { input ->
+                source.withOutputStream { output -> output << input }
+            }
+            downloaded = true
+        }
+        def actual = sherpaSha256Of(source)
+        if (actual != sherpaSha256) {
+            if (downloaded) source.delete()
+            throw new GradleException("sherpa-onnx ${sherpaVersion} AAR has SHA-256 ${actual}, expected ${sherpaSha256}")
+        }
+        if (downloaded) {
+            if (!source.renameTo(sherpaAar)) throw new GradleException("Could not move ${source} to ${sherpaAar}")
+        } else {
+            sherpaAar.bytes = source.bytes
+        }
+    }
+}
+
+def unpackTask = tasks.register('unpackSherpaOnnx', Sync) {
+    group = 'telegram plus'
+    description = 'Unpacks the sherpa-onnx AAR: API classes and the arm64 native libraries'
+    dependsOn fetchTask
+    from({ zipTree(sherpaAar) }) {
+        include 'classes.jar'
+        include 'jni/arm64-v8a/*.so'
+    }
+    into(sherpaUnpacked)
+}
+
+dependencies {
+    implementation files(new File(sherpaUnpacked, 'classes.jar')) {
+        builtBy unpackTask
+    }
+}
+
+android {
+    sourceSets {
+        main {
+            // Expects ABI folders inside: jni/arm64-v8a/*.so
+            jniLibs.srcDir new File(sherpaUnpacked, 'jni')
+        }
+    }
+}
+
+// The native libraries must be unpacked before any task that merges or packages them.
+tasks.named('preBuild') {
+    dependsOn unpackTask
+}

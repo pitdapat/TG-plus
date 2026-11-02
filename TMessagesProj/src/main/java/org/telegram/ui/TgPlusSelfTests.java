@@ -8,8 +8,10 @@ import android.media.AudioRecord;
 import android.media.MediaRecorder;
 import android.os.Build;
 import android.os.SystemClock;
+import android.widget.Toast;
 
 import org.telegram.messenger.AndroidUtilities;
+import org.telegram.messenger.R;
 import org.telegram.messenger.Utilities;
 import org.telegram.messenger.tgplus.GeminiTranslator;
 import org.telegram.messenger.tgplus.TgPlusDiagnostics;
@@ -17,8 +19,13 @@ import org.telegram.messenger.tgplus.TgPlusSettings;
 import org.telegram.messenger.tgplus.UpdateChecker;
 import org.telegram.messenger.tgplus.asr.AsrEngine;
 import org.telegram.messenger.tgplus.asr.ParakeetEngine;
+import org.telegram.messenger.tgplus.asr.ParakeetModel;
+import org.telegram.messenger.tgplus.asr.ParakeetModelManager;
+import org.telegram.messenger.tgplus.asr.TextMetrics;
+import org.telegram.messenger.tgplus.asr.WavReader;
 import org.telegram.ui.Components.TranslateAlert2;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -49,8 +56,10 @@ public final class TgPlusSelfTests {
                 microphone(activity, finish);
                 break;
             case TgPlusDiagnostics.TEST_SPEECH_MODEL:
+                speechModel(finish);
+                break;
             case TgPlusDiagnostics.TEST_DICTATION:
-                speechStub(id, finish);
+                dictation(activity, finish);
                 break;
             default:
                 finish.run();
@@ -110,11 +119,146 @@ public final class TgPlusSelfTests {
         });
     }
 
-    private static void speechStub(String id, Runnable done) {
-        AsrEngine.Status status = ParakeetEngine.getInstance().getStatus();
-        TgPlusDiagnostics.recordTest(id, TgPlusDiagnostics.RESULT_SKIPPED, 0,
-            status.code + ": " + ParakeetEngine.getInstance().displayName() + " engine is not built into this version", null);
-        done.run();
+    /** A word error rate up to this still passes: int8 maths on ARM can differ slightly from the reference run. */
+    private static final double MAX_WORD_ERROR = 0.15;
+    private static final int DICTATION_SECONDS = 5;
+
+    /** Loads the model, recognizes the known English sample and reports speed, memory and accuracy. */
+    private static void speechModel(Runnable done) {
+        final String id = TgPlusDiagnostics.TEST_SPEECH_MODEL;
+        ParakeetModelManager manager = ParakeetModelManager.getInstance();
+        if (!manager.isInstalled()) {
+            TgPlusDiagnostics.recordTest(id, TgPlusDiagnostics.RESULT_SKIPPED, 0,
+                "MODEL_MISSING: download the speech model in Settings > Telegram Plus > Speech model first", null);
+            done.run();
+            return;
+        }
+        final long start = SystemClock.elapsedRealtime();
+        Utilities.globalQueue.postRunnable(() -> {
+            WavReader.Wav wav;
+            try {
+                wav = WavReader.read(new File(manager.dir(), ParakeetModel.SAMPLE.fileName));
+            } catch (Exception e) {
+                AndroidUtilities.runOnUIThread(() -> {
+                    TgPlusDiagnostics.recordTest(id, TgPlusDiagnostics.RESULT_FAIL, SystemClock.elapsedRealtime() - start,
+                        "SAMPLE_UNREADABLE: " + ParakeetEngine.describe(e), null);
+                    done.run();
+                });
+                return;
+            }
+            AndroidUtilities.runOnUIThread(() -> ParakeetEngine.getInstance().transcribeSamples(wav.samples, wav.sampleRate, "en", result -> {
+                long total = SystemClock.elapsedRealtime() - start;
+                if (!result.ok()) {
+                    TgPlusDiagnostics.recordTest(id, TgPlusDiagnostics.RESULT_FAIL, total, result.error
+                        + (result.detail == null ? "" : ": " + result.detail) + memoryNote(result), null);
+                } else {
+                    double wer = TextMetrics.wordErrorRate(ParakeetModel.SAMPLE_TEXT, result.text);
+                    boolean pass = wer <= MAX_WORD_ERROR;
+                    TgPlusDiagnostics.recordTest(id, pass ? TgPlusDiagnostics.RESULT_PASS : TgPlusDiagnostics.RESULT_FAIL, total,
+                        (pass ? "OK" : "WRONG_TEXT") + ": " + speedNote(result) + ", word error " + Math.round(wer * 100) + "%",
+                        result.text);
+                }
+                done.run();
+            }));
+        });
+    }
+
+    /** Transient: the last dictation test's transcript, shown once and never stored. */
+    public static volatile String lastDictationText;
+
+    /** Records the microphone for a few seconds and recognizes it. The transcript is shown, not stored. */
+    private static void dictation(Activity activity, Runnable done) {
+        final String id = TgPlusDiagnostics.TEST_DICTATION;
+        if (!ParakeetModelManager.getInstance().isInstalled()) {
+            TgPlusDiagnostics.recordTest(id, TgPlusDiagnostics.RESULT_SKIPPED, 0,
+                "MODEL_MISSING: download the speech model in Settings > Telegram Plus > Speech model first", null);
+            done.run();
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= 23 && activity != null
+            && activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            TgPlusDiagnostics.recordTest(id, TgPlusDiagnostics.RESULT_SKIPPED, 0,
+                "NO_PERMISSION: microphone permission not granted; allow it and run the test again", null);
+            activity.requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, MIC_PERMISSION_REQUEST);
+            done.run();
+            return;
+        }
+        final long start = SystemClock.elapsedRealtime();
+        if (activity != null) {
+            AndroidUtilities.runOnUIThread(() -> Toast.makeText(activity, activity.getString(R.string.TgPlusSpeakNow, DICTATION_SECONDS), Toast.LENGTH_SHORT).show());
+        }
+        Utilities.globalQueue.postRunnable(() -> {
+            short[] pcm = new short[SAMPLE_RATE * DICTATION_SECONDS];
+            int[] got = {0};
+            String micError = capture(pcm, got);
+            if (micError != null) {
+                AndroidUtilities.runOnUIThread(() -> {
+                    TgPlusDiagnostics.recordTest(id, TgPlusDiagnostics.RESULT_FAIL, SystemClock.elapsedRealtime() - start, micError, null);
+                    done.run();
+                });
+                return;
+            }
+            int peak = 0;
+            for (int i = 0; i < got[0]; i++) peak = Math.max(peak, Math.abs((int) pcm[i]));
+            final int peakPercent = (int) Math.round(peak * 100.0 / 32767);
+            AndroidUtilities.runOnUIThread(() -> ParakeetEngine.getInstance().transcribePcm(pcm, got[0], null, result -> {
+                long total = SystemClock.elapsedRealtime() - start;
+                if (!result.ok()) {
+                    TgPlusDiagnostics.recordTest(id, TgPlusDiagnostics.RESULT_FAIL, total, result.error
+                        + (result.detail == null ? "" : ": " + result.detail) + memoryNote(result), null);
+                } else {
+                    int words = TextMetrics.words(result.text).size();
+                    lastDictationText = result.text;
+                    String quiet = peakPercent < 3 ? " (very quiet: speak during the test)" : "";
+                    // The words themselves are never stored; only how many there were.
+                    TgPlusDiagnostics.recordTest(id, TgPlusDiagnostics.RESULT_PASS, total,
+                        "OK: recorded " + (got[0] * 1000L / SAMPLE_RATE) + " ms, peak " + peakPercent + "%, " + words + " words, " + speedNote(result) + quiet, null);
+                }
+                done.run();
+            }));
+        });
+    }
+
+    private static String speedNote(AsrEngine.Result r) {
+        return (r.loadMs > 0 ? "load " + r.loadMs + " ms, " : "model already loaded, ")
+            + "recognized " + String.format(Locale.US, "%.1f", r.audioMs / 1000.0) + " s of audio in " + r.inferenceMs + " ms ("
+            + String.format(Locale.US, "%.1f", r.speedTimesTen() / 10.0) + "x real time), " + r.threads + " threads"
+            + memoryNote(r);
+    }
+
+    private static String memoryNote(AsrEngine.Result r) {
+        return r.memoryMb < 0 ? "" : ", memory " + r.memoryMb + " MB (highest " + r.peakMemoryMb + " MB)";
+    }
+
+    /** Fills {@code pcm} from the microphone; returns an error code or null. Blocks for the recording length. */
+    private static String capture(short[] pcm, int[] got) {
+        AudioRecord recorder = null;
+        try {
+            int min = AudioRecord.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
+            if (min <= 0) return "MIC_UNSUPPORTED: 16 kHz mono not supported";
+            recorder = new AudioRecord(MediaRecorder.AudioSource.MIC, SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT, Math.max(min, SAMPLE_RATE * 2));
+            if (recorder.getState() != AudioRecord.STATE_INITIALIZED) return "MIC_INIT: recorder could not start (is another app using the mic?)";
+            recorder.startRecording();
+            int total = 0;
+            while (total < pcm.length) {
+                int read = recorder.read(pcm, total, Math.min(2048, pcm.length - total));
+                if (read < 0) break;
+                total += read;
+            }
+            got[0] = total;
+            return total == 0 ? "MIC_NO_DATA: no audio samples were read" : null;
+        } catch (Exception e) {
+            return "MIC_ERROR: " + e.getClass().getSimpleName();
+        } finally {
+            if (recorder != null) {
+                try {
+                    recorder.stop();
+                } catch (Exception ignore) {
+                }
+                recorder.release();
+            }
+        }
     }
 
     private static void microphone(Activity activity, Runnable done) {

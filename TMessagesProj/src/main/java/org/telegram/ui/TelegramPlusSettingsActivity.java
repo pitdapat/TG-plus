@@ -23,6 +23,8 @@ import org.telegram.messenger.tgplus.TgPlusDiagnostics;
 import org.telegram.messenger.tgplus.TgPlusSettings;
 import org.telegram.messenger.tgplus.UpdateChecker;
 import org.telegram.messenger.tgplus.asr.ParakeetEngine;
+import org.telegram.messenger.tgplus.asr.ParakeetModel;
+import org.telegram.messenger.tgplus.asr.ParakeetModelManager;
 import org.telegram.ui.ActionBar.AlertDialog;
 import org.telegram.ui.ActionBar.Theme;
 import org.telegram.ui.Cells.TextCheckCell;
@@ -43,6 +45,7 @@ public class TelegramPlusSettingsActivity extends UniversalFragment {
     private static final int BUTTON_TRANSCRIPTION_ROUTE = 1;
     private static final int BUTTON_DICTATION = 2;
     private static final int BUTTON_SPEECH_MODEL = 3;
+    private static final int BUTTON_MODEL_WIFI_ONLY = 4;
     private static final int BUTTON_TRANSLATION_PROVIDER = 10;
     private static final int BUTTON_GEMINI_KEY = 11;
     private static final int BUTTON_GEMINI_MODEL = 12;
@@ -67,10 +70,27 @@ public class TelegramPlusSettingsActivity extends UniversalFragment {
         return getString(R.string.TgPlusTitle);
     }
 
+    private final ParakeetModelManager.Listener modelListener = () -> {
+        if (fragmentView != null && listView != null) listView.adapter.update(false);
+    };
+
     @Override
     public void onResume() {
         super.onResume();
+        ParakeetModelManager.getInstance().addListener(modelListener);
         if (listView != null) listView.adapter.update(false);
+    }
+
+    @Override
+    public void onPause() {
+        ParakeetModelManager.getInstance().removeListener(modelListener);
+        super.onPause();
+    }
+
+    @Override
+    public void onFragmentDestroy() {
+        ParakeetModelManager.getInstance().removeListener(modelListener);
+        super.onFragmentDestroy();
     }
 
     private String routeName(int route) {
@@ -91,7 +111,8 @@ public class TelegramPlusSettingsActivity extends UniversalFragment {
         items.add(UItem.asHeader(getString(R.string.TgPlusSpeech)));
         items.add(UItem.asButton(BUTTON_TRANSCRIPTION_ROUTE, R.drawable.msg_voicechat, getString(R.string.TgPlusVoiceTranscription), routeName(TgPlusSettings.getTranscriptionRoute())));
         items.add(UItem.asCheck(BUTTON_DICTATION, getString(R.string.TgPlusDictationButton)).setChecked(TgPlusSettings.isDictationEnabled()));
-        items.add(UItem.asButton(BUTTON_SPEECH_MODEL, R.drawable.msg_download, getString(R.string.TgPlusSpeechModel), getString(R.string.TgPlusNotAvailableYet)));
+        items.add(UItem.asButton(BUTTON_SPEECH_MODEL, R.drawable.msg_download, getString(R.string.TgPlusSpeechModel), modelRowValue()));
+        items.add(UItem.asCheck(BUTTON_MODEL_WIFI_ONLY, getString(R.string.TgPlusModelWifiOnly)).setChecked(TgPlusSettings.isModelWifiOnly()));
         items.add(UItem.asShadow(formatString(R.string.TgPlusSpeechInfo, ParakeetEngine.getInstance().displayName())));
 
         // Translation
@@ -129,6 +150,111 @@ public class TelegramPlusSettingsActivity extends UniversalFragment {
         items.add(UItem.asButton(BUTTON_PUSH_DIAGNOSTICS, R.drawable.msg_report, getString(R.string.PushDiagTitle)));
         items.add(UItem.asCheck(BUTTON_UI_SPEED, getString(R.string.TgPlusMeasureUiSpeed)).setChecked(TgPlusSettings.isUiSpeedEnabled()));
         items.add(UItem.asShadow(getString(R.string.TgPlusDiagnosticsInfo) + "\n\n" + getString(R.string.TgPlusUiSpeedInfo)));
+    }
+
+    private String modelRowValue() {
+        ParakeetModelManager m = ParakeetModelManager.getInstance();
+        switch (m.state()) {
+            case DOWNLOADING:
+                return formatString(R.string.TgPlusModelDownloading, m.percent());
+            case UNPACKING:
+                return formatString(R.string.TgPlusModelUnpacking, m.percent());
+            case READY:
+                return formatString(R.string.TgPlusModelReady, AndroidUtilities.formatFileSize(m.installedBytes()));
+            case ERROR:
+                return getString(R.string.TgPlusModelFailed);
+            default:
+                return m.partialBytes() > 0
+                    ? formatString(R.string.TgPlusModelPartial, AndroidUtilities.formatFileSize(m.partialBytes()))
+                    : formatString(R.string.TgPlusModelNotDownloaded, AndroidUtilities.formatFileSize(ParakeetModel.ARCHIVE_BYTES));
+        }
+    }
+
+    /** One dialog whose content and buttons follow the model's state. */
+    private void showSpeechModelDialog() {
+        if (getParentActivity() == null) return;
+        ParakeetModelManager m = ParakeetModelManager.getInstance();
+        AlertDialog.Builder b = new AlertDialog.Builder(getParentActivity(), getResourceProvider());
+        b.setTitle(getString(R.string.TgPlusSpeechModel));
+        switch (m.state()) {
+            case DOWNLOADING:
+            case UNPACKING:
+                b.setMessage(formatString(R.string.TgPlusModelProgressMessage,
+                    getString(m.state() == ParakeetModelManager.State.DOWNLOADING ? R.string.TgPlusModelPhaseDownloading : R.string.TgPlusModelPhaseUnpacking), m.percent()));
+                b.setPositiveButton(getString(R.string.TgPlusStop), (d, w) -> m.cancel());
+                b.setNegativeButton(getString(R.string.TgPlusClose), null);
+                break;
+            case READY:
+                b.setMessage(formatString(R.string.TgPlusModelReadyMessage, ParakeetModel.DISPLAY_NAME, AndroidUtilities.formatFileSize(m.installedBytes())));
+                b.setPositiveButton(getString(R.string.TgPlusClose), null);
+                b.setNeutralButton(getString(R.string.TgPlusVerifyFiles), (d, w) -> verifyModel());
+                b.setNegativeButton(getString(R.string.TgPlusDeleteModel), (d, w) -> confirmDeleteModel());
+                break;
+            case ERROR: {
+                StringBuilder text = new StringBuilder(TgPlusSpeechErrors.text(m.error()));
+                if (m.errorDetail() != null) text.append("\n\n").append(m.errorDetail());
+                b.setMessage(text.toString());
+                b.setPositiveButton(getString(R.string.TgPlusRetry), (d, w) -> startModelDownload(false));
+                b.setNeutralButton(getString(R.string.TgPlusDeleteModel), (d, w) -> m.delete());
+                b.setNegativeButton(getString(R.string.TgPlusClose), null);
+                break;
+            }
+            default: {
+                String message = formatString(R.string.TgPlusModelMissingMessage, ParakeetModel.DISPLAY_NAME,
+                    AndroidUtilities.formatFileSize(ParakeetModel.ARCHIVE_BYTES), AndroidUtilities.formatFileSize(ParakeetModel.installedBytes()),
+                    AndroidUtilities.formatFileSize(ParakeetModel.requiredFreeBytes()));
+                if (m.partialBytes() > 0) message += formatString(R.string.TgPlusModelAlreadyHave, AndroidUtilities.formatFileSize(m.partialBytes()));
+                b.setMessage(message);
+                b.setPositiveButton(getString(m.partialBytes() > 0 ? R.string.TgPlusResume : R.string.TgPlusDownload), (d, w) -> startModelDownload(false));
+                b.setNegativeButton(getString(R.string.Cancel), null);
+            }
+        }
+        showDialog(b.create());
+    }
+
+    private void startModelDownload(boolean allowMetered) {
+        String error = ParakeetModelManager.getInstance().start(allowMetered);
+        if (ParakeetModelManager.ERROR_WIFI_REQUIRED.equals(error)) {
+            if (getParentActivity() == null) return;
+            showDialog(new AlertDialog.Builder(getParentActivity(), getResourceProvider())
+                .setTitle(getString(R.string.TgPlusSpeechModel))
+                .setMessage(formatString(R.string.TgPlusNotOnWifi, AndroidUtilities.formatFileSize(ParakeetModel.ARCHIVE_BYTES)))
+                .setPositiveButton(getString(R.string.TgPlusDownloadAnyway), (d, w) -> startModelDownload(true))
+                .setNegativeButton(getString(R.string.Cancel), null)
+                .create());
+        } else if (error != null) {
+            BulletinFactory.of(this).createErrorBulletin(TgPlusSpeechErrors.text(error)).show();
+        }
+        if (listView != null) listView.adapter.update(true);
+    }
+
+    private void confirmDeleteModel() {
+        if (getParentActivity() == null) return;
+        showDialog(new AlertDialog.Builder(getParentActivity(), getResourceProvider())
+            .setTitle(getString(R.string.TgPlusSpeechModel))
+            .setMessage(getString(R.string.TgPlusDeleteModelConfirm))
+            .setPositiveButton(getString(R.string.TgPlusDeleteModel), (d, w) -> ParakeetModelManager.getInstance().delete())
+            .setNegativeButton(getString(R.string.Cancel), null)
+            .create());
+    }
+
+    private void verifyModel() {
+        if (getParentActivity() == null) return;
+        AlertDialog progress = new AlertDialog(getParentActivity(), AlertDialog.ALERT_TYPE_SPINNER);
+        progress.setCanCancel(false);
+        progress.show();
+        ParakeetModelManager.getInstance().verify(code -> {
+            try {
+                progress.dismiss();
+            } catch (Exception ignore) {
+            }
+            if (fragmentView == null) return;
+            if (code == null) {
+                BulletinFactory.of(this).createSimpleBulletin(R.raw.done, getString(R.string.TgPlusModelVerified)).show();
+            } else {
+                BulletinFactory.of(this).createErrorBulletin(formatString(R.string.TgPlusModelVerifyFailed, code)).show();
+            }
+        });
     }
 
     private String translateButtonValue() {
@@ -190,12 +316,11 @@ public class TelegramPlusSettingsActivity extends UniversalFragment {
                 ((TextCheckCell) view).setChecked(TgPlusSettings.isDictationEnabled());
                 break;
             case BUTTON_SPEECH_MODEL:
-                showDialog(new AlertDialog.Builder(getParentActivity(), getResourceProvider())
-                    .setTitle(getString(R.string.TgPlusSpeechModel))
-                    .setMessage(formatString(R.string.TgPlusSpeechModelStub, ParakeetEngine.getInstance().displayName(),
-                        AndroidUtilities.formatFileSize(ParakeetEngine.APPROX_MODEL_BYTES)))
-                    .setPositiveButton(getString(R.string.OK), null)
-                    .create());
+                showSpeechModelDialog();
+                break;
+            case BUTTON_MODEL_WIFI_ONLY:
+                TgPlusSettings.setModelWifiOnly(!TgPlusSettings.isModelWifiOnly());
+                ((TextCheckCell) view).setChecked(TgPlusSettings.isModelWifiOnly());
                 break;
             case BUTTON_TRANSLATION_PROVIDER:
                 showChoice(getString(R.string.TgPlusTranslationProvider), new CharSequence[]{
