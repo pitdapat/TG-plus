@@ -33,4 +33,11 @@ public final class IntSetting {
         loaded = true;
         SettingsPreferences.get().edit().putInt(name, value).apply();
     }
+
+    /** Removes the stored value so the default applies again. */
+    public synchronized void reset() {
+        value = defaultValue;
+        loaded = true;
+        SettingsPreferences.get().edit().remove(name).apply();
+    }
 }

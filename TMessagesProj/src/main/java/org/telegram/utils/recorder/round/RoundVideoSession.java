@@ -52,11 +52,11 @@ public final class RoundVideoSession {
 
     /** Preferred Camera2 source resolution relative to the encoded output. */
     public enum CameraResolution {
-        /** Uses a source crop twice the output size. */
+        /** Uses a camera stream whose short side is about twice the output size. */
         HIGH,
-        /** Uses a 720 crop for 480 output or tries 540 then 480 for 360 output. */
+        /** Uses a 720 stream for 480 output or tries 540 then 480 for 360 output. */
         MEDIUM,
-        /** Prefers a source crop equal to the output size. */
+        /** Prefers a camera stream whose short side equals the output size. */
         LOW
     }
 
@@ -66,6 +66,16 @@ public final class RoundVideoSession {
         FRONT,
         /** World-facing camera. */
         BACK
+    }
+
+    /** How hard the recorder limits shutter time in dim light to reduce motion blur. */
+    public enum MotionPriority {
+        /** Regular auto exposure. */
+        OFF,
+        /** Shutter at most 1/50 s (1/60 s under 60 Hz light): less blur, moderate grain. */
+        BALANCED,
+        /** Shutter at most 1/100 s (1/120 s under 60 Hz light): least blur, most grain. */
+        STRONG
     }
 
     /** Requested video capture and encoder frame rate. */
@@ -222,6 +232,8 @@ public final class RoundVideoSession {
         private int videoBitrate;
         private long maximumDurationMs = DEFAULT_MAXIMUM_DURATION_MS;
         private boolean compositionEnabled = true;
+        private boolean videoStabilizationEnabled;
+        private MotionPriority motionPriority = MotionPriority.BALANCED;
         private Listener listener;
         private OutputListener outputListener;
         private ScreenFlashController screenFlashController;
@@ -271,6 +283,25 @@ public final class RoundVideoSession {
         /** Enables the circular blur, dimming and Telegram overlays. */
         public @NonNull Builder setCompositionEnabled(boolean enabled) {
             compositionEnabled = enabled;
+            return this;
+        }
+
+        /**
+         * Requests camera video stabilization when the device supports it. Stabilization
+         * narrows the field of view slightly on most devices.
+         */
+        public @NonNull Builder setVideoStabilizationEnabled(boolean enabled) {
+            videoStabilizationEnabled = enabled;
+            return this;
+        }
+
+        /**
+         * Limits the shutter time to a flicker-safe value (1/100 or 1/120 s) when auto exposure
+         * would pick a longer one, raising ISO instead. Reduces motion blur in dim light at the
+         * cost of more noise. Also requests fast (single-frame) noise reduction.
+         */
+        public @NonNull Builder setMotionPriority(@NonNull MotionPriority value) {
+            motionPriority = value;
             return this;
         }
 
@@ -601,6 +632,8 @@ public final class RoundVideoSession {
                 + ", cameraMode=" + requestedCameraResolution
                 + ", fps=" + requestedFrameRate.getValue()
                 + ", composition=" + compositionEnabled
+                + ", stabilization=" + builder.videoStabilizationEnabled
+                + ", motionPriority=" + builder.motionPriority
                 + ", facing=" + requestedFacing
                 + ", maxDurationMs=" + maximumDurationMs);
         cameraController = new RoundVideoCameraController(
@@ -611,6 +644,8 @@ public final class RoundVideoSession {
                 requestedCameraResolution,
                 requestedFrameRate,
                 compositionEnabled,
+                builder.videoStabilizationEnabled,
+                builder.motionPriority,
                 diagnostics,
                 cameraCallback
         );

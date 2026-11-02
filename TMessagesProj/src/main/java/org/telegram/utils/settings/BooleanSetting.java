@@ -40,6 +40,14 @@ public final class BooleanSetting {
         return newValue;
     }
 
+    /** Removes the stored value so the default applies again. */
+    public synchronized void reset() {
+        value = defaultValue;
+        present = false;
+        loaded = true;
+        SettingsPreferences.get().edit().remove(name).apply();
+    }
+
     private void ensureLoaded() {
         if (loaded) return;
         synchronized (this) {
