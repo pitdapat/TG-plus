@@ -141,17 +141,34 @@ public final class TgPlusDiagnostics {
 
     public static String buildReportBlocking(boolean full) {
         Context context = ApplicationLoader.applicationContext;
+        List<DiagnosticsLog.Event> events = log().readAll();
         ArrayList<DiagnosticsReport.Section> sections = new ArrayList<>();
         sections.add(new DiagnosticsReport.Section("App and device", environment(context), true));
         sections.add(new DiagnosticsReport.Section("Settings", settings(), true));
         sections.add(new DiagnosticsReport.Section("Speech engine", speech(full), true));
         sections.add(new DiagnosticsReport.Section("Self-tests", tests(full), true));
+        sections.add(new DiagnosticsReport.Section("UI speed", uiSpeed(events), true));
         sections.add(new DiagnosticsReport.Section("Notification diagnostics", push(full), true));
         if (full) {
             sections.add(new DiagnosticsReport.Section("Update files", updateFiles(), false));
         }
-        return DiagnosticsReport.build(full, "Telegram Plus diagnostics", sections, log().readAll(), TimeZone.getDefault(),
+        return DiagnosticsReport.build(full, "Telegram Plus diagnostics", sections, events, TimeZone.getDefault(),
             "Full report: Settings > Telegram Plus > Diagnostics > Download full report.");
+    }
+
+    private static List<String> uiSpeed(List<DiagnosticsLog.Event> events) {
+        ArrayList<String> lines = new ArrayList<>();
+        lines.add("Measuring: " + (TgPlusSettings.isUiSpeedEnabled() ? "on" : "off (turn it on in Settings > Telegram Plus > Diagnostics)"));
+        lines.addAll(UiSpeedSummary.lines(events));
+        return lines;
+    }
+
+    /** UI speed comparison for the Feature diagnostics screen. Reads the log off the main thread. */
+    public static void uiSpeedText(Utilities.Callback<String> done) {
+        queue.postRunnable(() -> {
+            String text = TextUtils.join("\n\n", UiSpeedSummary.lines(log().readAll()));
+            AndroidUtilities.runOnUIThread(() -> done.run(text));
+        });
     }
 
     private static String when(long time) {

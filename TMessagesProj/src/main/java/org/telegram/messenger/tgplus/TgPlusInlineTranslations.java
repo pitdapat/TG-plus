@@ -128,22 +128,35 @@ public final class TgPlusInlineTranslations {
         final String target = to;
         final int editDate = m.messageOwner.edit_date;
         pending.add(key);
+        TgPlusUiSpeed.translateTapped(key);
         notifyChanged(m);
         GeminiTranslator.translate(m.messageOwner.message, m.messageOwner.originalLanguage, target, "inline", result -> {
             pending.remove(key);
             if (result.ok()) {
+                TgPlusUiSpeed.translateResult(key, result.text.length());
                 save(key, editDate, target, result.text);
-            } else if (onError != null) {
-                onError.run(result.error);
+            } else {
+                TgPlusUiSpeed.translateEnded(key);
+                if (onError != null) onError.run(result.error);
             }
             notifyChanged(m);
         });
+    }
+
+    /**
+     * Called by the chat after it handled a message-translated notification that began at
+     * {@code handlerStartedAt}; completes the tap-to-visible measurement (UI speed diagnostics).
+     */
+    public static void onApplied(MessageObject m, long handlerStartedAt) {
+        String key = key(m);
+        if (key != null) TgPlusUiSpeed.translationApplied(key, handlerStartedAt);
     }
 
     public static void hide(MessageObject m) {
         String key = key(m);
         if (key == null) return;
         pending.remove(key);
+        TgPlusUiSpeed.translateEnded(key);
         prefs().edit().remove(key).apply();
         TgPlusDiagnostics.log(DiagnosticsLog.event("translation", "inline_hide").ok().build());
         notifyChanged(m);

@@ -11736,6 +11736,10 @@
     <string name="TgPlusDiagnostics">Diagnostics</string>
     <string name="TgPlusFeatureDiagnostics">Feature diagnostics</string>
     <string name="TgPlusDiagnosticsInfo">Diagnostics are stored only on this device and never include message text, transcripts, translations, audio or your API key.</string>
+    <string name="TgPlusMeasureUiSpeed">Measure UI speed</string>
+    <string name="TgPlusUiSpeedInfo">UI speed records how long a chat takes to open, how long Translate takes to appear, and how smoothly the chat scrolls, with and without translations. Only timings are stored, never message text. Results are in Feature diagnostics and in both reports. Turn this off to check whether measuring affects speed.</string>
+    <string name="TgPlusUiSpeed">UI speed</string>
+    <string name="TgPlusUiSpeedHowTo">To compare: open a few chats that have no translations, then translate messages in one chat, leave it, reopen it and scroll. Open times skip the first chat after the app starts, which is slower while the app warms up. Times are medians, so a single slow outlier does not skew them. Scrolling only sees stalls of the main thread, not graphics (GPU) time.</string>
     <string name="TgPlusSelfTests">Self-tests</string>
     <string name="TgPlusSelfTestsInfo">Tap a test to run it, or run all of them. Results appear here and in both reports.</string>
     <string name="TgPlusTestTranslationName">Gemini translation</string>

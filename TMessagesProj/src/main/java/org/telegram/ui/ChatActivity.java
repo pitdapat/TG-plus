@@ -188,6 +188,7 @@ import org.telegram.messenger.SvgHelper;
 import org.telegram.messenger.Timer;
 import org.telegram.messenger.TranslateController;
 import org.telegram.messenger.tgplus.TgPlusInlineTranslations;
+import org.telegram.messenger.tgplus.TgPlusUiSpeed;
 import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.UserObject;
 import org.telegram.messenger.Utilities;
@@ -899,6 +900,8 @@ public class ChatActivity extends BaseFragment implements
     private boolean hideForwardEndReached;
     private boolean loading = true;
     private boolean firstLoading = true;
+    // Telegram Plus UI speed diagnostics: created with the chat so it can time the opening.
+    private final TgPlusUiSpeed.Chat tgplusSpeed = new TgPlusUiSpeed.Chat();
     private boolean chatWasReset;
     private boolean firstUnreadSent;
     private int loadsCount;
@@ -6830,6 +6833,16 @@ public class ChatActivity extends BaseFragment implements
         });
         chatListView.setOnItemLongClickListener(onItemLongClickListener);
         chatListView.setOnItemClickListener(onItemClickListener);
+        tgplusSpeed.attachScroll(chatListView, () -> {
+            for (int i = 0; i < chatListView.getChildCount(); i++) {
+                View child = chatListView.getChildAt(i);
+                if (child instanceof ChatMessageCell) {
+                    MessageObject shown = ((ChatMessageCell) child).getMessageObject();
+                    if (shown != null && shown.tgplusInlineApplied != null) return true;
+                }
+            }
+            return false;
+        });
         chatListView.setOnScrollListener(new RecyclerView.OnScrollListener() {
 
             private float totalDy = 0;
@@ -24631,7 +24644,9 @@ public class ChatActivity extends BaseFragment implements
             if (getDialogId() != messageObject.getDialogId()) {
                 return;
             }
+            final long tgplusHandlerStart = SystemClock.elapsedRealtime();
             updateMessageTranslation(messageObject, summary);
+            TgPlusInlineTranslations.onApplied(messageObject, tgplusHandlerStart);
             if (args.length > 2 && (boolean) args[2]) {
                 checkTranslation(true);
             }
@@ -37859,6 +37874,7 @@ public class ChatActivity extends BaseFragment implements
 
                 if (view instanceof ChatMessageCell) {
                     final ChatMessageCell messageCell = (ChatMessageCell) view;
+                    tgplusSpeed.messageBound(ChatActivity.this.messages);
                     MessageObject.GroupedMessages groupedMessages = getValidGroupedMessage(message);
                     messageCell.isChat = currentChat != null || UserObject.isUserSelf(currentUser) || UserObject.isReplyUser(currentUser) || (chatMode == MODE_SEARCH);
                     messageCell.setSponsoredMessageVisible(true, false);

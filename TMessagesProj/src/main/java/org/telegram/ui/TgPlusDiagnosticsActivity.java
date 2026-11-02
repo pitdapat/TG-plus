@@ -39,6 +39,14 @@ public class TgPlusDiagnosticsActivity extends UniversalFragment {
 
     private final HashSet<String> running = new HashSet<>();
     private boolean runningAll;
+    private String uiSpeedText;
+
+    private void refreshUiSpeed() {
+        TgPlusDiagnostics.uiSpeedText(text -> {
+            uiSpeedText = text;
+            if (fragmentView != null && listView != null) listView.adapter.update(false);
+        });
+    }
 
     @Override
     protected CharSequence getTitle() {
@@ -49,6 +57,7 @@ public class TgPlusDiagnosticsActivity extends UniversalFragment {
     public void onResume() {
         super.onResume();
         if (listView != null) listView.adapter.update(false);
+        refreshUiSpeed();
     }
 
     private String testLabel(String id) {
@@ -89,6 +98,9 @@ public class TgPlusDiagnosticsActivity extends UniversalFragment {
         items.add(UItem.asButton(BUTTON_RUN_ALL, R.drawable.msg_retry, getString(runningAll ? R.string.TgPlusRunning : R.string.TgPlusRunAllTests)).accent());
         items.add(UItem.asShadow(details.length() > 0 ? details.toString() : getString(R.string.TgPlusSelfTestsInfo)));
 
+        items.add(UItem.asHeader(getString(R.string.TgPlusUiSpeed)));
+        items.add(UItem.asShadow((uiSpeedText == null ? getString(R.string.TgPlusRunning) : uiSpeedText) + "\n\n" + getString(R.string.TgPlusUiSpeedHowTo)));
+
         items.add(UItem.asHeader(getString(R.string.TgPlusReports)));
         items.add(UItem.asButton(BUTTON_COPY, R.drawable.msg_copy, getString(R.string.TgPlusCopyShortReport)));
         items.add(UItem.asButton(BUTTON_DOWNLOAD, R.drawable.msg_download, getString(R.string.TgPlusDownloadFullReport)));
@@ -127,6 +139,7 @@ public class TgPlusDiagnosticsActivity extends UniversalFragment {
                     .setPositiveButton(getString(R.string.TgPlusClear), (d, w) -> {
                         TgPlusDiagnostics.clear();
                         listView.adapter.update(true);
+                        refreshUiSpeed();
                     })
                     .setNegativeButton(getString(R.string.Cancel), null)
                     .create());

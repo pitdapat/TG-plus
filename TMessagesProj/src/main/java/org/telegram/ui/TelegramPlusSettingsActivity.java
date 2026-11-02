@@ -55,6 +55,7 @@ public class TelegramPlusSettingsActivity extends UniversalFragment {
     private static final int BUTTON_AUTO_UPDATE = 22;
     private static final int BUTTON_FEATURE_DIAGNOSTICS = 30;
     private static final int BUTTON_PUSH_DIAGNOSTICS = 31;
+    private static final int BUTTON_UI_SPEED = 32;
 
     private static final String GEMINI_KEY_URL = "https://aistudio.google.com/apikey";
 
@@ -126,7 +127,8 @@ public class TelegramPlusSettingsActivity extends UniversalFragment {
         items.add(UItem.asHeader(getString(R.string.TgPlusDiagnostics)));
         items.add(UItem.asButton(BUTTON_FEATURE_DIAGNOSTICS, R.drawable.msg_info, getString(R.string.TgPlusFeatureDiagnostics)));
         items.add(UItem.asButton(BUTTON_PUSH_DIAGNOSTICS, R.drawable.msg_report, getString(R.string.PushDiagTitle)));
-        items.add(UItem.asShadow(getString(R.string.TgPlusDiagnosticsInfo)));
+        items.add(UItem.asCheck(BUTTON_UI_SPEED, getString(R.string.TgPlusMeasureUiSpeed)).setChecked(TgPlusSettings.isUiSpeedEnabled()));
+        items.add(UItem.asShadow(getString(R.string.TgPlusDiagnosticsInfo) + "\n\n" + getString(R.string.TgPlusUiSpeedInfo)));
     }
 
     private String translateButtonValue() {
@@ -242,6 +244,10 @@ public class TelegramPlusSettingsActivity extends UniversalFragment {
                 break;
             case BUTTON_PUSH_DIAGNOSTICS:
                 presentFragment(new PushDiagnosticsActivity());
+                break;
+            case BUTTON_UI_SPEED:
+                TgPlusSettings.setUiSpeedEnabled(!TgPlusSettings.isUiSpeedEnabled());
+                ((TextCheckCell) view).setChecked(TgPlusSettings.isUiSpeedEnabled());
                 break;
         }
     }

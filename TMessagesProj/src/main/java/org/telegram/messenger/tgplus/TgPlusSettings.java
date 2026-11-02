@@ -91,6 +91,17 @@ public final class TgPlusSettings {
         return getTranslationProvider() == TRANSLATION_GEMINI && hasGeminiKey();
     }
 
+    // Diagnostics.
+
+    /** Record chat open, translate and scroll timings (timings only, no content). */
+    public static boolean isUiSpeedEnabled() {
+        return prefs().getBoolean("ui_speed_enabled", true);
+    }
+
+    public static void setUiSpeedEnabled(boolean enabled) {
+        prefs().edit().putBoolean("ui_speed_enabled", enabled).apply();
+    }
+
     // App updates.
 
     public static boolean isAutoUpdateCheckEnabled() {

@@ -223,6 +223,15 @@ Two buttons, because a copied report has to stay short enough to paste into a ch
 
 ---
 
+### 7.4 UI speed
+Shows whether translations make the app slower. Timings only, never message content. On by default; switch in Settings > Telegram Plus > Diagnostics > Measure UI speed.
+
+- **Open chat:** time from creating the chat screen to the frame that shows its first messages, split by whether any loaded message shows a translation. The first chat after app start is reported separately because it is slower while the app warms up.
+- **Translate, tap to visible:** total, split into Gemini wait, saving and queueing, message layout, and the frame that draws it. "Excluding Gemini" is the part this app controls.
+- **Scrolling:** moving frames and how many took longer than 24 ms, with and without a translation on screen. This sees stalls of the main thread, not GPU time.
+- Summaries use medians. Both reports and the Feature diagnostics screen show them; the full report also lists every event.
+- Implementation: `TgPlusUiSpeed` (measuring), `UiSpeedSummary` (pure Java, tested in `TgPlusUiSpeedTest`), hooks in `ChatActivity` (chat creation, first bound message cell, scroll listener, message-translated handler).
+
 ## 8. Build order
 
 1. Telegram Plus settings screen; move Notification diagnostics into it.
