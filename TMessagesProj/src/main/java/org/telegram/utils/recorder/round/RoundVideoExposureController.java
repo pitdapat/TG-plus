@@ -45,12 +45,32 @@ final class RoundVideoExposureController {
     private static final float ENTER_MARGIN = 1.1f;
     private static final int ENTER_FRAMES = 6;
     private static final int EXIT_FRAMES = 30;
+    /** Manual exposure does not follow lighting changes; re-meter with regular AE this often. */
+    private static final int MANUAL_REMETER_FRAMES = 60;
+    /**
+     * "Light need": exposure x ISO the scene asks for, relative to a full 1/fps frame at the
+     * camera's maximum ISO. 1.0 means the camera is completely out of headroom at this fps.
+     */
+    private static final float LOW_LIGHT_ENTER_NEED = 0.6f;
+    private static final float LOW_LIGHT_EXIT_NEED = 0.25f;
+    private static final int LOW_LIGHT_ENTER_FRAMES = 20;
+    private static final int LOW_LIGHT_EXIT_FRAMES = 45;
+    /** Shadow lift strength (see the round video shaders) in low light / very low light. */
+    static final float LIFT_LOW_LIGHT = 0.3f;
+    static final float LIFT_VERY_LOW_LIGHT = 0.45f;
 
     enum Strategy { NONE, PRIORITY, MANUAL }
 
     enum Mode { AUTO, PRIORITY, MANUAL }
 
     private final boolean enabled;
+    private final boolean lowLightBoost;
+    @Nullable private final Range<Integer> lowLightFpsRange;
+    private boolean lowLight;
+    private int darkFrames;
+    private int litFrames;
+    private int manualFrames;
+    private float liftTarget;
     private final boolean strong;
     private final Strategy strategy;
     private final int frameRate;
@@ -75,9 +95,15 @@ final class RoundVideoExposureController {
     RoundVideoExposureController(
             @NonNull CameraCharacteristics characteristics,
             @NonNull RoundVideoSession.MotionPriority level,
+            boolean lowLightBoost,
             int frameRate
     ) {
         this.enabled = level != RoundVideoSession.MotionPriority.OFF;
+        this.lowLightBoost = lowLightBoost;
+        this.lowLightFpsRange = chooseLowLightFpsRange(
+                characteristics.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES),
+                Math.max(1, frameRate)
+        );
         this.strong = level == RoundVideoSession.MotionPriority.STRONG;
         this.frameRate = Math.max(1, frameRate);
         this.strategy = detectStrategy(characteristics);
@@ -138,10 +164,58 @@ final class RoundVideoExposureController {
         mode = Mode.AUTO;
         overLimitFrames = 0;
         brightFrames = 0;
+        manualFrames = 0;
+    }
+
+    /** True while the scene is too dark for a full-rate frame even at maximum ISO. */
+    boolean isLowLight() {
+        return lowLight;
+    }
+
+    /** Shadow lift to apply to the picture right now (0 = none). */
+    float getLiftTarget() {
+        return liftTarget;
+    }
+
+    /**
+     * Range that lets auto exposure slow down to ~15 fps (1/15 s per frame) in the dark while
+     * still running at full rate when there is light. Ranges reaching below 10 fps are ignored:
+     * 1/5 s frames smear too much.
+     */
+    @Nullable
+    static Range<Integer> chooseLowLightFpsRange(@Nullable Range<Integer>[] ranges, int fps) {
+        if (ranges == null) return null;
+        Range<Integer> best = null;
+        for (Range<Integer> range : ranges) {
+            int lower = range.getLower();
+            if (range.getUpper() != fps || lower < 10 || lower > fps / 2) continue;
+            if (best == null) {
+                best = range;
+                continue;
+            }
+            int error = Math.abs(lower - 15);
+            int bestError = Math.abs(best.getLower() - 15);
+            if (error < bestError || error == bestError && lower < best.getLower()) best = range;
+        }
+        return best;
+    }
+
+    /** The fps range to request while in low light, or null to keep the normal range. */
+    @Nullable
+    Range<Integer> getLowLightFpsRange() {
+        return lowLight ? lowLightFpsRange : null;
     }
 
     /** Applies noise-reduction and exposure keys. Call after AE mode and torch keys are set. */
     void apply(@NonNull CaptureRequest.Builder builder) {
+        if (lowLight) {
+            // Dark scenes: let auto exposure use the slower frame range, with full noise cleanup.
+            builder.set(
+                    CaptureRequest.NOISE_REDUCTION_MODE,
+                    CaptureRequest.NOISE_REDUCTION_MODE_HIGH_QUALITY
+            );
+            return;
+        }
         if (!enabled) return;
         if (fastNoiseReductionSupported) {
             builder.set(
@@ -180,6 +254,15 @@ final class RoundVideoExposureController {
         statExposureMaxNs = Math.max(statExposureMaxNs, exposureNs);
         statSensitivityTotal += sensitivity;
         statSensitivityMax = Math.max(statSensitivityMax, sensitivity);
+
+        // Manual exposure ignores lighting changes: go back to auto exposure every ~2 s so the
+        // camera can re-meter (and notice the room got darker).
+        if (mode == Mode.MANUAL && ++manualFrames >= MANUAL_REMETER_FRAMES) {
+            reset();
+            return true;
+        }
+        if (mode != Mode.MANUAL && updateLowLight(exposureNs, sensitivity)) return true;
+        if (lowLight) return false;
         if (!enabled || strategy == Strategy.NONE) return false;
 
         long limitNs = getExposureLimitNs();
@@ -199,6 +282,29 @@ final class RoundVideoExposureController {
             }
         }
         return false;
+    }
+
+    /** Returns true when low light starts or ends (the request must be rebuilt). */
+    private boolean updateLowLight(long exposureNs, int sensitivity) {
+        if (!lowLightBoost || sensitivityRange == null) return false;
+        double need = (double) exposureNs * sensitivity
+                / ((1_000_000_000d / frameRate) * sensitivityRange.getUpper());
+        if (lowLight) {
+            liftTarget = need >= 1.0 ? LIFT_VERY_LOW_LIGHT : LIFT_LOW_LIGHT;
+            litFrames = need < LOW_LIGHT_EXIT_NEED ? litFrames + 1 : 0;
+            if (litFrames < LOW_LIGHT_EXIT_FRAMES) return false;
+            lowLight = false;
+            liftTarget = 0f;
+            litFrames = 0;
+            return true;
+        }
+        darkFrames = need >= LOW_LIGHT_ENTER_NEED ? darkFrames + 1 : 0;
+        if (darkFrames < LOW_LIGHT_ENTER_FRAMES) return false;
+        darkFrames = 0;
+        lowLight = true;
+        liftTarget = need >= 1.0 ? LIFT_VERY_LOW_LIGHT : LIFT_LOW_LIGHT;
+        reset(); // motion priority would only make a dark picture darker
+        return true;
     }
 
     private boolean enterLimitedMode(long exposureNs, int sensitivity, long limitNs) {
@@ -249,7 +355,7 @@ final class RoundVideoExposureController {
                     Locale.US,
                     "exposure={avgMs=%.2f, maxMs=%.2f, avgIso=%d, maxIso=%d, mode=%s, "
                             + "strategy=%s, limitMs=%.2f, fixedMs=%.2f, fixedIso=%d, "
-                            + "flicker=%s, modeChanges=%d}",
+                            + "flicker=%s, modeChanges=%d, lowLight=%s, lift=%.2f, lowLightFps=%s}",
                     statExposureTotalNs / (double) statFrames / 1_000_000d,
                     statExposureMaxNs / 1_000_000d,
                     statSensitivityTotal / statFrames,
@@ -260,7 +366,10 @@ final class RoundVideoExposureController {
                     fixedExposureNs / 1_000_000d,
                     fixedSensitivity,
                     flickerName(lastFlicker),
-                    modeChanges
+                    modeChanges,
+                    lowLight,
+                    liftTarget,
+                    lowLightFpsRange
             );
         }
         statFrames = 0;

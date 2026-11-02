@@ -234,6 +234,7 @@ public final class RoundVideoSession {
         private boolean compositionEnabled = true;
         private boolean videoStabilizationEnabled;
         private MotionPriority motionPriority = MotionPriority.BALANCED;
+        private boolean lowLightBoost = true;
         private Listener listener;
         private OutputListener outputListener;
         private ScreenFlashController screenFlashController;
@@ -302,6 +303,15 @@ public final class RoundVideoSession {
          */
         public @NonNull Builder setMotionPriority(@NonNull MotionPriority value) {
             motionPriority = value;
+            return this;
+        }
+
+        /**
+         * In very dark scenes, lets the frame rate drop toward 15 fps (longer exposure) and
+         * gently lifts shadows in the picture. Motion priority steps aside while it is active.
+         */
+        public @NonNull Builder setLowLightBoostEnabled(boolean enabled) {
+            lowLightBoost = enabled;
             return this;
         }
 
@@ -634,6 +644,7 @@ public final class RoundVideoSession {
                 + ", composition=" + compositionEnabled
                 + ", stabilization=" + builder.videoStabilizationEnabled
                 + ", motionPriority=" + builder.motionPriority
+                + ", lowLightBoost=" + builder.lowLightBoost
                 + ", facing=" + requestedFacing
                 + ", maxDurationMs=" + maximumDurationMs);
         cameraController = new RoundVideoCameraController(
@@ -646,6 +657,7 @@ public final class RoundVideoSession {
                 compositionEnabled,
                 builder.videoStabilizationEnabled,
                 builder.motionPriority,
+                builder.lowLightBoost,
                 diagnostics,
                 cameraCallback
         );
