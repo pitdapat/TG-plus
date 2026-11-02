@@ -262,6 +262,33 @@ final class RoundVideoCodecRecorder implements RoundVideoGlProcessor.FrameTiming
             throw new IOException("Video encoder does not support "
                     + outputSize + "x" + outputSize + " at " + videoFrameRate + " fps");
         }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            // Real-time hints let the codec schedule for live capture instead of best-effort
+            // throughput, which reduces encoder-induced frame drops under load.
+            MediaFormat realtimeFormat = MediaFormat.createVideoFormat(
+                    MediaFormat.MIMETYPE_VIDEO_AVC,
+                    outputSize,
+                    outputSize
+            );
+            realtimeFormat.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
+            realtimeFormat.setInteger(MediaFormat.KEY_BIT_RATE, videoBitrate);
+            realtimeFormat.setInteger(MediaFormat.KEY_FRAME_RATE, videoFrameRate);
+            realtimeFormat.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1);
+            realtimeFormat.setInteger(MediaFormat.KEY_PRIORITY, 0);
+            realtimeFormat.setInteger(MediaFormat.KEY_OPERATING_RATE, videoFrameRate);
+            try {
+                diagnostics.log("video encoder configure: codec=" + videoCodec.getName()
+                        + ", format=" + realtimeFormat);
+                videoCodec.configure(realtimeFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+                videoInputSurface = videoCodec.createInputSurface();
+                return;
+            } catch (IllegalStateException | IllegalArgumentException e) {
+                // Some codecs reject priority/operating-rate keys; retry with the plain format.
+                diagnostics.log("video encoder rejected real-time hints: " + e);
+                videoCodec.release();
+                videoCodec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
+            }
+        }
         diagnostics.log("video encoder configure: codec=" + videoCodec.getName()
                 + ", format=" + format);
         videoCodec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);

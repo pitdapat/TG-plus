@@ -12,6 +12,8 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
+import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.GradientDrawable;
 import android.graphics.Color;
 import android.graphics.Matrix;
 import android.graphics.Outline;
@@ -30,6 +32,7 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.ApplicationLoader;
@@ -60,6 +63,9 @@ import java.util.ArrayList;
 public final class InstantCameraView2 extends InstantCameraViewBase {
 
     private static final long MINIMUM_DURATION_MS = 800L;
+    private static final long COVER_FADE_OUT_MS = 140L;
+    private static final long COVER_FADE_IN_MS = 320L;
+    private static final int COLOR_WASH_SIZE = 40;
     private static final float ZOOM_GESTURE_EFFORT = 1.5f;
     private static final int SWITCH_PREVIEW_BITMAP_SIZE = 180;
     private static final long UI_FRAME_FALLBACK_DELAY_NS = 70_000_000L;
@@ -385,6 +391,8 @@ public final class InstantCameraView2 extends InstantCameraViewBase {
                 .setCameraResolution(SharedSettings.roundVideoCameraResolution.get())
                 .setFrameRate(SharedSettings.roundVideoFrameRate.get())
                 .setCompositionEnabled(SharedSettings.roundVideoComposition.get())
+                .setVideoStabilizationEnabled(SharedSettings.roundVideoStabilization.get())
+                .setMotionPriority(SharedSettings.roundVideoMotionPriorityLevel.get())
                 .setListener(sessionListener)
                 .setOutputListener(upload)
                 .setScreenFlashController(this::setScreenFlashEnabled)
@@ -660,6 +668,8 @@ public final class InstantCameraView2 extends InstantCameraViewBase {
             if (previous == RoundVideoSession.State.RECORDING
                     && info.getState() != RoundVideoSession.State.RECORDING) {
                 saveLastCameraBitmap(true);
+                Bitmap wash = captureColorWash();
+                if (wash != null) saveColorWash(wash, SharedSettings.roundVideoLastCamera.get());
             }
             lastVisibleDurationMs = Math.max(lastVisibleDurationMs, info.getRecordedDurationMs());
             if (info.getState() == RoundVideoSession.State.RECORDING) {
@@ -1095,19 +1105,86 @@ public final class InstantCameraView2 extends InstantCameraViewBase {
         cameraContainer.setTranslationY(animationTranslationY + panTranslationY);
     }
 
+    /**
+     * Soft cover that matches the theme: a gentle radial gradient instead of a black disc.
+     * Never shows an old frame from a previous bubble.
+     */
+    private void setNeutralCover() {
+        boolean dark = Theme.isCurrentThemeDark();
+        GradientDrawable cover = new GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                dark ? new int[]{0xFF50545C, 0xFF3A3D43} : new int[]{0xFFE4E8ED, 0xFFC9CED6}
+        );
+        cover.setGradientType(GradientDrawable.RADIAL_GRADIENT);
+        cover.setGradientRadius(dp(160));
+        textureOverlayView.setImageDrawable(cover);
+    }
+
+    /**
+     * Turns the current camera picture into a very heavy blur (just its colours), so a camera
+     * switch melts through a soft colour wash instead of a held frame or a black screen.
+     * Falls back to the soft cover if no picture is available.
+     */
+    private void setColorWashCover() {
+        Bitmap wash = captureColorWash();
+        if (wash == null) {
+            setNeutralCover();
+        } else {
+            saveColorWash(wash, SharedSettings.roundVideoLastCamera.get());
+            textureOverlayView.setImageBitmap(wash);
+        }
+    }
+
+    /** Heavily blurred tiny copy of the live picture: only its colours survive. */
+    @Nullable
+    private Bitmap captureColorWash() {
+        if (!textureView.isAvailable()) return null;
+        try {
+            Bitmap wash = textureView.getBitmap(COLOR_WASH_SIZE, COLOR_WASH_SIZE);
+            if (wash == null || wash.getWidth() == 0
+                    || wash.getPixel(wash.getWidth() / 2, wash.getHeight() / 2) == 0) {
+                return null;
+            }
+            wash = applyPreviewBitmapTransform(wash);
+            Utilities.stackBlurBitmap(wash, 12);
+            Utilities.stackBlurBitmap(wash, 12);
+            return wash;
+        } catch (Throwable ignore) {
+            return null;
+        }
+    }
+
+    private static File colorWashFile(@NonNull RoundVideoSession.CameraFacing facing) {
+        return new File(ApplicationLoader.getFilesDirFixed(),
+                "round_color_wash_" + facing.name().toLowerCase(java.util.Locale.US) + ".png");
+    }
+
+    private static void saveColorWash(@NonNull Bitmap wash, @NonNull RoundVideoSession.CameraFacing facing) {
+        try (FileOutputStream stream = new FileOutputStream(colorWashFile(facing))) {
+            wash.compress(Bitmap.CompressFormat.PNG, 100, stream);
+        } catch (Throwable ignore) {
+        }
+    }
+
+    /** Colour wash of the last picture this camera showed, from an earlier bubble. */
+    @Nullable
+    private static Bitmap loadColorWash(@NonNull RoundVideoSession.CameraFacing facing) {
+        try {
+            File file = colorWashFile(facing);
+            return file.exists() ? BitmapFactory.decodeFile(file.getAbsolutePath()) : null;
+        } catch (Throwable ignore) {
+            return null;
+        }
+    }
+
     private void showInitialPlaceholder() {
         if (drawInitialPlaceholder) return;
-        if (lastBitmap == null) {
-            try {
-                File file = new File(ApplicationLoader.getFilesDirFixed(), "icthumb.jpg");
-                lastBitmap = BitmapFactory.decodeFile(file.getAbsolutePath());
-            } catch (Throwable ignore) {
-            }
-        }
-        if (lastBitmap != null) {
-            textureOverlayView.setImageBitmap(lastBitmap);
+        // Bubbles open on the front camera: start from the colours of its last picture.
+        Bitmap wash = loadColorWash(RoundVideoSession.CameraFacing.FRONT);
+        if (wash != null) {
+            textureOverlayView.setImageBitmap(wash);
         } else {
-            textureOverlayView.setImageResource(R.drawable.icplaceholder);
+            setNeutralCover();
         }
         drawInitialPlaceholder = true;
         textureOverlayView.animate().cancel();
@@ -1120,16 +1197,17 @@ public final class InstantCameraView2 extends InstantCameraViewBase {
         drawInitialPlaceholder = false;
         textureOverlayView.invalidate();
         textureOverlayView.animate().cancel();
-        textureOverlayView.setAlpha(0f);
+        textureOverlayView.animate().alpha(0f).setDuration(COVER_FADE_IN_MS)
+                .setInterpolator(CubicBezierInterpolator.EASE_OUT_QUINT).start();
     }
 
     private void showCameraSwitchPlaceholder() {
-        saveLastCameraBitmap(false);
-        if (lastBitmap != null) textureOverlayView.setImageBitmap(lastBitmap);
-        else textureOverlayView.setImageResource(R.drawable.icplaceholder);
+        setColorWashCover();
         switchPlaceholderVisible = true;
         textureOverlayView.animate().cancel();
-        textureOverlayView.setAlpha(1f);
+        // Melt into a soft colour wash of the current scene, then into the new camera.
+        textureOverlayView.animate().alpha(1f).setDuration(COVER_FADE_OUT_MS)
+                .setInterpolator(CubicBezierInterpolator.EASE_OUT).start();
     }
 
     private void startCameraSwitchCut(
@@ -1196,7 +1274,12 @@ public final class InstantCameraView2 extends InstantCameraViewBase {
         if (!switchPlaceholderVisible) return;
         switchPlaceholderVisible = false;
         textureOverlayView.animate().cancel();
-        textureOverlayView.setAlpha(0f);
+        if (animated) {
+            textureOverlayView.animate().alpha(0f).setDuration(COVER_FADE_IN_MS)
+                    .setInterpolator(CubicBezierInterpolator.EASE_OUT_QUINT).start();
+        } else {
+            textureOverlayView.setAlpha(0f);
+        }
     }
 
     private void saveLastCameraBitmap(boolean persist) {

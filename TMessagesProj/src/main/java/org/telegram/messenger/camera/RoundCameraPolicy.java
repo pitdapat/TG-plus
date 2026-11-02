@@ -26,6 +26,19 @@ public final class RoundCameraPolicy {
     }
 
     public static void applySupportedControls(CaptureRequest.Builder b, CameraCharacteristics c) {
+        applySupportedControls(b, c, true);
+    }
+
+    /**
+     * @param allowElectronicStabilization when false, electronic (EIS) stabilization is turned
+     *        off instead of being used as a fallback, because EIS crops and narrows the view.
+     *        Optical stabilization (no crop) is still preferred where available.
+     */
+    public static void applySupportedControls(
+            CaptureRequest.Builder b,
+            CameraCharacteristics c,
+            boolean allowElectronicStabilization
+    ) {
         if (supports(c.get(CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES),
                 CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)) {
             b.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO);
@@ -35,6 +48,11 @@ public final class RoundCameraPolicy {
         if (supports(c.get(CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION),
                 CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_ON)) {
             b.set(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE, CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_ON);
+            if (supports(c.get(CameraCharacteristics.CONTROL_AVAILABLE_VIDEO_STABILIZATION_MODES),
+                    CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF)) {
+                b.set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF);
+            }
+        } else if (!allowElectronicStabilization) {
             if (supports(c.get(CameraCharacteristics.CONTROL_AVAILABLE_VIDEO_STABILIZATION_MODES),
                     CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF)) {
                 b.set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF);

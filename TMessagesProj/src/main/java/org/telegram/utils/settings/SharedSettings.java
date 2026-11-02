@@ -22,7 +22,7 @@ public final class SharedSettings {
         EnumSetting.of("round_video_output_resolution", RoundVideoSession.OutputResolution.P480);
 
     public static final EnumSetting<RoundVideoSession.CameraResolution> roundVideoCameraResolution =
-        EnumSetting.of("round_video_camera_resolution", RoundVideoSession.CameraResolution.HIGH);
+        EnumSetting.of("round_video_camera_resolution", RoundVideoSession.CameraResolution.MEDIUM);
 
     public static final EnumSetting<RoundVideoSession.FrameRate> roundVideoFrameRate =
         EnumSetting.of("round_video_frame_rate", RoundVideoSession.FrameRate.FPS_30);
@@ -30,11 +30,31 @@ public final class SharedSettings {
     public static final IntSetting roundVideoVideoBitrate =
         IntSetting.of("round_video_video_bitrate", 1_200_000);
 
+    public static final BooleanSetting roundVideoStabilization =
+        BooleanSetting.of("round_video_stabilization", false);
+
+    public static final EnumSetting<RoundVideoSession.MotionPriority> roundVideoMotionPriorityLevel =
+        EnumSetting.of("round_video_motion_priority_level", RoundVideoSession.MotionPriority.BALANCED);
+
     public static final BooleanSetting roundVideoComposition =
         BooleanSetting.of("round_video_composition", true);
 
     public static final EnumSetting<RoundVideoSession.CameraFacing> roundVideoLastCamera =
         EnumSetting.of("round_video_last_camera", RoundVideoSession.CameraFacing.FRONT);
+
+    /**
+     * Restores every round-video option to its default. The recorder choice
+     * ("Use Camera2 recorder") and the last-used camera are kept.
+     */
+    public static void resetRoundVideoSettings() {
+        roundVideoOutputResolution.reset();
+        roundVideoCameraResolution.reset();
+        roundVideoFrameRate.reset();
+        roundVideoVideoBitrate.reset();
+        roundVideoMotionPriorityLevel.reset();
+        roundVideoStabilization.reset();
+        roundVideoComposition.reset();
+    }
 
     private SharedSettings() {
     }
