@@ -136,15 +136,19 @@ public class TgPlusTranscriptionTest {
         short[] quietClip = new short[16000];
         Arrays.fill(quietClip, (short) 1000); // peak about 3% of full scale
         DictationAudio.Prepared q = DictationAudio.prepare(quietClip, quietClip.length, 16000);
-        check(q.samples.length == 16000 + 4800 + 12800, "padding added: " + q.samples.length);
-        check(q.samples[0] == 0f && q.samples[4799] == 0f && q.samples[q.samples.length - 1] == 0f, "padding is silence");
-        check(Math.abs(q.samples[4800] - 0.5f) < 0.01f, "quiet clip brought up to the target level");
+        check(q.samples.length == 16000, "prepare keeps the length: " + q.samples.length);
+        check(Math.abs(q.samples[0] - 0.5f) < 0.01f, "quiet clip brought up to the target level");
+        float[] padded = DictationAudio.pad(q.samples, 100, 1100, 16000);
+        check(padded.length == 4800 + 1000 + 12800, "padding added: " + padded.length);
+        check(padded[0] == 0f && padded[4799] == 0f && padded[padded.length - 1] == 0f, "padding is silence");
+        check(padded[4800] == q.samples[100] && padded[4800 + 999] == q.samples[1099], "piece copied unchanged between the padding");
+        check(DictationAudio.pad(q.samples, 5, 5, 16000).length == 4800 + 12800, "empty piece is only padding");
         check(Math.abs(q.gain - 16.4f) < 0.5f, "gain " + q.gain);
         check(!q.silent(), "a 3% peak is not silent");
         short[] normalClip = new short[16000];
         Arrays.fill(normalClip, (short) 20000);
         DictationAudio.Prepared n = DictationAudio.prepare(normalClip, normalClip.length, 16000);
-        check(n.gain == 1f && Math.abs(n.samples[4800] - 20000 / 32768f) < 1e-6f, "normal level untouched");
+        check(n.gain == 1f && Math.abs(n.samples[0] - 20000 / 32768f) < 1e-6f, "normal level untouched");
         short[] hush = new short[16000];
         Arrays.fill(hush, (short) 100); // 0.3%
         check(DictationAudio.prepare(hush, hush.length, 16000).silent(), "0.3% peak is silent");

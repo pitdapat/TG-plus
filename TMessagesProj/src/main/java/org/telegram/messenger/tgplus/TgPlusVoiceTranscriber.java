@@ -167,8 +167,7 @@ public final class TgPlusVoiceTranscriber {
             finish(ACTION_VOICE_NOTE, callback, start, pcm.length * 1000L / SAMPLE_RATE, 0, null, "AUDIO_TOO_LONG");
             return;
         }
-        final float[] samples = new float[pcm.length];
-        for (int i = 0; i < pcm.length; i++) samples[i] = pcm[i] / 32768f;
+        final float[] samples = DictationAudio.prepare(pcm, pcm.length, SAMPLE_RATE).samples;
         final long audioMs = pcm.length * 1000L / SAMPLE_RATE;
         final List<int[]> chunks = AudioChunker.split(samples, SAMPLE_RATE);
         final List<String> texts = new ArrayList<>();
@@ -183,8 +182,7 @@ public final class TgPlusVoiceTranscriber {
             return;
         }
         int[] range = chunks.get(index);
-        float[] piece = new float[range[1] - range[0]];
-        System.arraycopy(samples, range[0], piece, 0, piece.length);
+        float[] piece = DictationAudio.pad(samples, range[0], range[1], SAMPLE_RATE);
         ParakeetEngine.getInstance().transcribeSamples(piece, SAMPLE_RATE, null, result -> {
             if (!result.ok()) {
                 finish(action, callback, start, audioMs, chunks.size(), null, result.error == null ? "ENGINE" : result.error);

@@ -1,9 +1,9 @@
 package org.telegram.messenger.tgplus.asr;
 
 /**
- * Prepares a short dictated clip for the recognizer. Very short clips with speech right at the edges, and
- * quiet recordings, often come back empty, so the clip gets a little silence at both ends and a quiet
- * recording is brought up to a normal level.
+ * Prepares audio for the recognizer. Speech that starts right at the first sample is often garbled or
+ * dropped, so every piece gets a little silence at both ends ({@link #pad}); quiet recordings are brought up to
+ * a normal level ({@link #prepare}).
  */
 public final class DictationAudio {
 
@@ -50,13 +50,20 @@ public final class DictationAudio {
         if (peak > 0f && peak < QUIET_PEAK && peak >= SILENT_PEAK / 4) {
             gain = Math.min(MAX_GAIN, TARGET_PEAK / peak);
         }
-        int lead = (int) ((long) LEAD_MS * sampleRate / 1000);
-        int tail = (int) ((long) TAIL_MS * sampleRate / 1000);
-        float[] out = new float[lead + length + tail];
+        float[] out = new float[length];
         for (int i = 0; i < length; i++) {
             float v = pcm[i] / 32768f * gain;
-            out[lead + i] = v > 1f ? 1f : (v < -1f ? -1f : v);
+            out[i] = v > 1f ? 1f : (v < -1f ? -1f : v);
         }
         return new Prepared(out, peak, gain);
+    }
+
+    /** Copies {@code [from, to)} with {@link #LEAD_MS} of silence before it and {@link #TAIL_MS} after. */
+    public static float[] pad(float[] samples, int from, int to, int sampleRate) {
+        int lead = (int) ((long) LEAD_MS * sampleRate / 1000);
+        int tail = (int) ((long) TAIL_MS * sampleRate / 1000);
+        float[] out = new float[lead + (to - from) + tail];
+        System.arraycopy(samples, from, out, lead, to - from);
+        return out;
     }
 }

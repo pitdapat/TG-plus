@@ -31,6 +31,7 @@ public class TgPlusDictationStrip extends View {
     private final float[] levels = new float[BARS];
     private int levelIndex;
     private boolean transcribing;
+    private boolean live;
     private long startTime;
     private float slide; // 0 .. 1, how far the finger has moved toward cancel
 
@@ -45,9 +46,17 @@ public class TgPlusDictationStrip extends View {
 
     public void startRecording() {
         transcribing = false;
+        live = false;
         java.util.Arrays.fill(levels, 0f);
         levelIndex = 0;
         slide = 0f;
+        startTime = SystemClock.elapsedRealtime();
+        invalidate();
+    }
+
+    /** The microphone is delivering audio: the timer starts and the dot turns red. */
+    public void goLive() {
+        live = true;
         startTime = SystemClock.elapsedRealtime();
         invalidate();
     }
@@ -92,10 +101,10 @@ public class TgPlusDictationStrip extends View {
             postInvalidateDelayed(150);
             return;
         }
-        long elapsed = SystemClock.elapsedRealtime() - startTime;
-        // red dot, pulsing once a second
-        float pulse = 0.6f + 0.4f * (float) Math.abs(Math.sin(elapsed / 1000.0 * Math.PI));
-        dotPaint.setColor(color(Theme.key_chat_recordedVoiceDot));
+        long elapsed = live ? SystemClock.elapsedRealtime() - startTime : 0;
+        // dot: grey while the microphone starts, then red and pulsing once a second
+        float pulse = live ? 0.6f + 0.4f * (float) Math.abs(Math.sin(elapsed / 1000.0 * Math.PI)) : 1f;
+        dotPaint.setColor(color(live ? Theme.key_chat_recordedVoiceDot : Theme.key_chat_messagePanelHint));
         dotPaint.setAlpha((int) (255 * pulse));
         canvas.drawCircle(dp(20), cy, dp(5), dotPaint);
         long seconds = elapsed / 1000;

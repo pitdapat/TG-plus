@@ -113,6 +113,15 @@ public class TgPlusDictationController {
         }
         String error = recorder.start(new TgPlusDictationRecorder.Listener() {
             @Override
+            public void onAudioStarted() {
+                // The microphone takes a moment to start; the buzz and the red dot tell you when to speak.
+                if (state == State.RECORDING && !cancelled) {
+                    if (strip != null) strip.goLive();
+                    button.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+                }
+            }
+
+            @Override
             public void onLevel(float level) {
                 if (strip != null && state == State.RECORDING) strip.addLevel(level);
             }
@@ -127,7 +136,6 @@ public class TgPlusDictationController {
             return;
         }
         state = State.RECORDING;
-        button.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
         showStrip();
     }
 

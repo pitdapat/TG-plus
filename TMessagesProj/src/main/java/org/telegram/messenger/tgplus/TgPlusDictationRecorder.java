@@ -11,6 +11,9 @@ import org.telegram.messenger.tgplus.asr.PcmBuffer;
 public final class TgPlusDictationRecorder {
 
     public interface Listener {
+        /** Main thread. The microphone is delivering audio now; anything said before this is lost. */
+        void onAudioStarted();
+
         /** Main thread. Loudness of the latest block, 0 to 1. */
         void onLevel(float level);
 
@@ -50,10 +53,17 @@ public final class TgPlusDictationRecorder {
         thread = new Thread(() -> {
             short[] block = new short[1600];
             boolean hitLimit = false;
+            boolean started = false;
             while (running) {
                 int read = local.read(block, 0, block.length);
                 if (read < 0) break;
                 if (read == 0) continue;
+                if (!started) {
+                    started = true;
+                    AndroidUtilities.runOnUIThread(() -> {
+                        if (running) listener.onAudioStarted();
+                    });
+                }
                 target.append(block, read);
                 final float level = PcmBuffer.level(block, read);
                 AndroidUtilities.runOnUIThread(() -> {
