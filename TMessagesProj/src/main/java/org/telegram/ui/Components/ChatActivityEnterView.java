@@ -609,6 +609,7 @@ public class ChatActivityEnterView extends FrameLayout implements
     // Telegram Plus: hold-to-dictate button left of the emoji button
     private ImageView tgplusDictationButton;
     private TgPlusDictationController tgplusDictation;
+    private int[] tgplusCoveredVisibility;
     private ImageView deleteRichDraftButton;
     @Nullable
     private ImageView expandStickersButton;
@@ -2762,7 +2763,6 @@ public class ChatActivityEnterView extends FrameLayout implements
         });
         messageEditTextContainer.addView(emojiButton, LayoutHelper.createFrame(DEFAULT_HEIGHT, DEFAULT_HEIGHT, Gravity.BOTTOM | Gravity.LEFT, 2, 0, 0, 0));
         setEmojiButtonImage(false, false);
-        createTgPlusDictationButton(context);
 
         deleteRichDraftButton = new ImageView(context);
         deleteRichDraftButton.setScaleType(ImageView.ScaleType.CENTER);
@@ -2841,6 +2841,13 @@ public class ChatActivityEnterView extends FrameLayout implements
                     if (getAlpha() < 0.5f) return false;
                     return super.dispatchTouchEvent(event);
                 }
+
+                @Override
+                public void setTranslationX(float translationX) {
+                    super.setTranslationX(translationX);
+                    // Telegram Plus: the dictation button sits next to this one and slides with it
+                    if (tgplusDictationButton != null) tgplusDictationButton.setTranslationX(translationX);
+                }
             };
             attachButton.setScaleType(ImageView.ScaleType.CENTER);
             attachButton.setColorFilter(new PorterDuffColorFilter(getThemedColor(Theme.key_glass_defaultIcon), PorterDuff.Mode.MULTIPLY));
@@ -2854,6 +2861,7 @@ public class ChatActivityEnterView extends FrameLayout implements
                 delegate.didPressAttachButton();
             });
             attachButton.setContentDescription(getString(R.string.AccDescrAttachButton));
+            createTgPlusDictationButton(context);
             updateFieldRight(1);
         }
 
@@ -4624,7 +4632,6 @@ public class ChatActivityEnterView extends FrameLayout implements
 
     public void setBotWebViewButtonOffsetX(float offset) {
         emojiButton.setTranslationX(offset);
-        if (tgplusDictationButton != null) tgplusDictationButton.setTranslationX(offset);
         if (messageEditText != null) {
             messageTextTranslationX = offset;
             updateMessageTextParams();
@@ -8815,6 +8822,16 @@ public class ChatActivityEnterView extends FrameLayout implements
         layoutParams.rightMargin = Math.max(layoutParams.rightMargin, Math.max(0, sendButton.width() - dp(DEFAULT_HEIGHT)));
         if (doneButton != null && doneButton.getVisibility() == VISIBLE) {
             layoutParams.rightMargin = Math.max(layoutParams.rightMargin, Math.max(0, doneButton.width() - dp(DEFAULT_HEIGHT)));
+        }
+        if (tgplusDictationShown()) {
+            // Telegram Plus: the dictation button takes the space just left of what is already on the right.
+            MarginLayoutParams dictation = (MarginLayoutParams) tgplusDictationButton.getLayoutParams();
+            int dictationRight = Math.max(0, layoutParams.rightMargin - dp(2));
+            if (dictation.rightMargin != dictationRight) {
+                dictation.rightMargin = dictationRight;
+                tgplusDictationButton.setLayoutParams(dictation);
+            }
+            layoutParams.rightMargin += dp(TGPLUS_DICTATION_WIDTH);
         }
         if (oldRightMargin != layoutParams.rightMargin) {
             messageEditText.setLayoutParams(layoutParams);
@@ -14753,7 +14770,6 @@ public class ChatActivityEnterView extends FrameLayout implements
         emojiButtonPaddingAlpha = progress;
         updateEmojiButtonParams();
         emojiButton.setTranslationX(-leftPadding);
-        if (tgplusDictationButton != null) tgplusDictationButton.setTranslationX(-leftPadding);
         messageTextPaddingTranslationX = -leftPadding - (messageEditText == null ? 0 : dp(40) + (senderSelectView != null && senderSelectView.getVisibility() == View.VISIBLE ? dp(18) : 0)) * (1f - progress);
         if (recordDeleteImageView != null) {
             recordDeleteImageView.setTranslationX(-leftPadding);
@@ -14852,7 +14868,7 @@ public class ChatActivityEnterView extends FrameLayout implements
         tgplusDictationButton.setBackground(Theme.createInsetRoundRectDrawable(getThemedColor(Theme.key_listSelector), dp(19), dp(1), dp(3)));
         tgplusDictationButton.setContentDescription(getString(R.string.TgPlusDictationDescription));
         tgplusDictationButton.setVisibility(View.GONE);
-        messageEditTextContainer.addView(tgplusDictationButton, LayoutHelper.createFrame(TGPLUS_DICTATION_WIDTH, DEFAULT_HEIGHT, Gravity.BOTTOM | Gravity.LEFT, 2, 0, 0, 0));
+        messageEditTextContainer.addView(tgplusDictationButton, LayoutHelper.createFrame(TGPLUS_DICTATION_WIDTH, DEFAULT_HEIGHT, Gravity.BOTTOM | Gravity.RIGHT, 0, 0, DEFAULT_HEIGHT, 0));
         tgplusDictation = new TgPlusDictationController(new TgPlusDictationController.Host() {
             @Override
             public Activity activity() {
@@ -14876,11 +14892,22 @@ public class ChatActivityEnterView extends FrameLayout implements
 
             @Override
             public void setFieldCovered(boolean covered) {
-                if (messageEditText != null && !richDraftActive) {
-                    messageEditText.setVisibility(covered ? View.INVISIBLE : View.VISIBLE);
-                }
-                if (!richDraftActive) {
-                    emojiButton.setVisibility(covered ? View.INVISIBLE : View.VISIBLE);
+                View[] views = {messageEditText, emojiButton, attachLayout, attachButton};
+                if (covered) {
+                    tgplusCoveredVisibility = new int[views.length];
+                    for (int i = 0; i < views.length; i++) {
+                        if (views[i] == null) continue;
+                        tgplusCoveredVisibility[i] = views[i].getVisibility();
+                        if (tgplusCoveredVisibility[i] == View.VISIBLE) views[i].setVisibility(View.INVISIBLE);
+                    }
+                } else if (tgplusCoveredVisibility != null) {
+                    // Put back exactly what each view showed before, instead of assuming it was visible.
+                    for (int i = 0; i < views.length; i++) {
+                        if (views[i] != null && tgplusCoveredVisibility[i] == View.VISIBLE && views[i].getVisibility() == View.INVISIBLE) {
+                            views[i].setVisibility(View.VISIBLE);
+                        }
+                    }
+                    tgplusCoveredVisibility = null;
                 }
             }
 
@@ -14900,28 +14927,26 @@ public class ChatActivityEnterView extends FrameLayout implements
         tgplusDictationButton.setOnTouchListener((v, event) -> tgplusDictation.onTouch(event));
     }
 
+    private boolean tgplusDictationShown() {
+        return tgplusDictationButton != null && tgplusDictationButton.getVisibility() == View.VISIBLE;
+    }
+
     /**
-     * Makes room for the dictation button to the left of the emoji button. The margins are rewritten from
-     * scratch on every measure, so adding the offset here is safe to repeat.
+     * The dictation button sits just left of the clip (attach) button. The message field and the extra
+     * buttons that live left of the clip make room for it. Margins are rewritten from scratch on every
+     * measure and in {@link #updateFieldRight}, so this is safe to repeat.
      */
     private void applyTgPlusDictationLayout() {
         if (tgplusDictationButton == null) return;
-        boolean show = org.telegram.messenger.tgplus.TgPlusSettings.isDictationEnabled() && !richDraftActive;
+        boolean show = org.telegram.messenger.tgplus.TgPlusSettings.isDictationEnabled() && !richDraftActive && messageEditText != null;
         int visibility = show ? View.VISIBLE : View.GONE;
         if (tgplusDictationButton.getVisibility() != visibility && !(tgplusDictation != null && tgplusDictation.isBusy())) {
             tgplusDictationButton.setVisibility(visibility);
+            // Changing the margins inside a measure pass would loop, so do it right after.
+            AndroidUtilities.runOnUIThread(() -> updateFieldRight(lastAttachVisible));
         }
-        if (!show) return;
-        int width = dp(TGPLUS_DICTATION_WIDTH);
-        MarginLayoutParams emoji = (MarginLayoutParams) emojiButton.getLayoutParams();
-        MarginLayoutParams dictation = (MarginLayoutParams) tgplusDictationButton.getLayoutParams();
-        dictation.leftMargin = emoji.leftMargin;
-        emoji.leftMargin += width;
-        if (messageEditText != null) {
-            ((MarginLayoutParams) messageEditText.getLayoutParams()).leftMargin += width;
-        }
-        if (richDraftPreview != null) {
-            ((MarginLayoutParams) richDraftPreview.getLayoutParams()).leftMargin += width;
+        if (attachLayout != null) {
+            ((MarginLayoutParams) attachLayout.getLayoutParams()).rightMargin = dp(DEFAULT_HEIGHT) + (tgplusDictationShown() ? dp(TGPLUS_DICTATION_WIDTH) : 0);
         }
     }
 

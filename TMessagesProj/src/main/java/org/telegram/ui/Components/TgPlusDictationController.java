@@ -138,10 +138,10 @@ public class TgPlusDictationController {
         }
         strip.startRecording();
         if (strip.getParent() == null) {
-            // Start where the dictation button ends, and draw under the button so it stays visible.
+            // Cover the field up to the dictation button, and draw under the button so it stays visible.
             // A fixed height: a match-parent height would make the whole input area grow to fill the screen.
             FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44), Gravity.BOTTOM);
-            params.leftMargin = button.getRight();
+            params.rightMargin = Math.max(0, container.getWidth() - button.getLeft());
             container.addView(strip, Math.max(0, container.indexOfChild(button)), params);
         }
         host.setFieldCovered(true);
