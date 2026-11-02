@@ -34,6 +34,8 @@ public final class TgPlusSpeechErrors {
                 return getString(R.string.TgPlusSpeechErrorNativeLoad);
             case "MODEL_MISSING":
                 return getString(R.string.TgPlusSpeechErrorMissing);
+            case "MIC_SILENT":
+                return getString(R.string.TgPlusDictationQuiet);
             case "AUDIO_UNSUPPORTED":
             case "AUDIO_DECODE":
                 return getString(R.string.TgPlusSpeechErrorAudioFormat);

@@ -6,6 +6,7 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.pm.PackageManager;
 import android.os.Build;
+import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
@@ -138,7 +139,8 @@ public class TgPlusDictationController {
         strip.startRecording();
         if (strip.getParent() == null) {
             // Start where the dictation button ends, and draw under the button so it stays visible.
-            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+            // A fixed height: a match-parent height would make the whole input area grow to fill the screen.
+            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44), Gravity.BOTTOM);
             params.leftMargin = button.getRight();
             container.addView(strip, Math.max(0, container.indexOfChild(button)), params);
         }

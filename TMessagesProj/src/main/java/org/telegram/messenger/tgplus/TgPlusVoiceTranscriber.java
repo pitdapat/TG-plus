@@ -11,6 +11,7 @@ import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.Utilities;
 import org.telegram.messenger.tgplus.asr.AsrEngine;
 import org.telegram.messenger.tgplus.asr.AudioChunker;
+import org.telegram.messenger.tgplus.asr.DictationAudio;
 import org.telegram.messenger.tgplus.asr.ParakeetEngine;
 import org.telegram.messenger.tgplus.asr.TranscriptionRouting;
 import org.telegram.tgnet.TLRPC;
@@ -130,9 +131,15 @@ public final class TgPlusVoiceTranscriber {
             finish(ACTION_DICTATION, callback, start, 0, 0, null, status.state == AsrEngine.State.ERROR ? status.code : "MODEL_MISSING");
             return;
         }
-        final float[] samples = new float[length];
-        for (int i = 0; i < length; i++) samples[i] = pcm[i] / 32768f;
+        final DictationAudio.Prepared prepared = DictationAudio.prepare(pcm, length, SAMPLE_RATE);
+        final float[] samples = prepared.samples;
         final long audioMs = length * 1000L / SAMPLE_RATE;
+        TgPlusDiagnostics.log(DiagnosticsLog.event("speech", "dictation_audio").ok()
+            .num("audio_ms", audioMs).num("peak_pct", Math.round(prepared.peak * 100)).num("gain_x10", Math.round(prepared.gain * 10)).build());
+        if (prepared.silent()) {
+            finish(ACTION_DICTATION, callback, start, audioMs, 0, null, "MIC_SILENT");
+            return;
+        }
         final List<int[]> chunks = AudioChunker.split(samples, SAMPLE_RATE);
         recognizeChunk(ACTION_DICTATION, samples, chunks, 0, new ArrayList<>(), callback, start, audioMs);
     }
