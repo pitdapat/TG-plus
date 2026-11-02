@@ -1,4 +1,6 @@
 import org.telegram.messenger.tgplus.asr.AudioChunker;
+import org.telegram.messenger.tgplus.asr.DictationAudio;
+import org.telegram.messenger.tgplus.asr.PcmBuffer;
 import org.telegram.messenger.tgplus.asr.PcmConverter;
 import org.telegram.messenger.tgplus.asr.TranscriptionRouting;
 
@@ -104,6 +106,63 @@ public class TgPlusTranscriptionTest {
         int crossings = 0;
         for (int i = 1; i < t16.length; i++) if ((t16[i - 1] < 0) != (t16[i] < 0)) crossings++;
         check(Math.abs(crossings - 2000) <= 4, "1 kHz tone survives resampling, crossings " + crossings);
+
+        // Dictation buffer
+        PcmBuffer buf = new PcmBuffer(100);
+        check(buf.append(new short[]{1, 2, 3}, 3) == 3 && buf.size() == 3, "append");
+        check(buf.append(new short[]{4, 5}, 1) == 1 && buf.size() == 4, "append count respected");
+        short[] big = new short[200];
+        Arrays.fill(big, (short) 9);
+        check(buf.append(big, 200) == 96 && buf.size() == 100 && buf.isFull(), "append stops at the limit");
+        check(buf.append(big, 10) == 0, "full buffer takes nothing");
+        short[] all = buf.toArray();
+        check(all.length == 100 && all[0] == 1 && all[2] == 3 && all[3] == 4 && all[99] == 9, "contents kept in order");
+        all[0] = 77;
+        check(buf.toArray()[0] == 1, "toArray returns a copy");
+        check(new PcmBuffer(0).append(new short[]{1}, 1) == 0, "zero-size buffer");
+        PcmBuffer growing = new PcmBuffer(16000 * 120);
+        for (int i = 0; i < 40; i++) growing.append(new short[16000], 16000);
+        check(growing.size() == 640000, "grows past its starting size");
+        check(PcmBuffer.level(new short[100], 100) == 0f, "silence has level 0");
+        short[] veryLoud = new short[100];
+        Arrays.fill(veryLoud, (short) 30000);
+        check(PcmBuffer.level(veryLoud, 100) == 1f, "very loud caps at 1");
+        short[] speech = new short[100];
+        Arrays.fill(speech, (short) 3000);
+        check(Math.abs(PcmBuffer.level(speech, 100) - 0.5f) < 0.01f, "speech-level block is about 0.5");
+        check(PcmBuffer.level(speech, 0) == 0f, "empty block");
+
+        // Dictation clip preparation
+        short[] quietClip = new short[16000];
+        Arrays.fill(quietClip, (short) 1000); // peak about 3% of full scale
+        DictationAudio.Prepared q = DictationAudio.prepare(quietClip, quietClip.length, 16000);
+        check(q.samples.length == 16000, "prepare keeps the length: " + q.samples.length);
+        check(Math.abs(q.samples[0] - 0.5f) < 0.01f, "quiet clip brought up to the target level");
+        float[] padded = DictationAudio.pad(q.samples, 100, 1100, 16000);
+        check(padded.length == 4800 + 1000 + 12800, "padding added: " + padded.length);
+        check(padded[0] == 0f && padded[4799] == 0f && padded[padded.length - 1] == 0f, "padding is silence");
+        check(padded[4800] == q.samples[100] && padded[4800 + 999] == q.samples[1099], "piece copied unchanged between the padding");
+        check(DictationAudio.pad(q.samples, 5, 5, 16000).length == 4800 + 12800, "empty piece is only padding");
+        check(Math.abs(q.gain - 16.4f) < 0.5f, "gain " + q.gain);
+        check(!q.silent(), "a 3% peak is not silent");
+        short[] normalClip = new short[16000];
+        Arrays.fill(normalClip, (short) 20000);
+        DictationAudio.Prepared n = DictationAudio.prepare(normalClip, normalClip.length, 16000);
+        check(n.gain == 1f && Math.abs(n.samples[0] - 20000 / 32768f) < 1e-6f, "normal level untouched");
+        short[] hush = new short[16000];
+        Arrays.fill(hush, (short) 100); // 0.3%
+        check(DictationAudio.prepare(hush, hush.length, 16000).silent(), "0.3% peak is silent");
+        check(DictationAudio.prepare(hush, hush.length, 16000).gain == 1f, "silence is not amplified");
+        check(DictationAudio.prepare(new short[16000], 16000, 16000).silent(), "digital silence is silent");
+        short[] edge = new short[16000];
+        Arrays.fill(edge, (short) 900);
+        edge[10] = 32767;
+        check(DictationAudio.prepare(edge, edge.length, 16000).gain == 1f, "a loud spike means no gain");
+        short[] clipping = new short[16000];
+        Arrays.fill(clipping, (short) 300);
+        DictationAudio.Prepared c = DictationAudio.prepare(clipping, clipping.length, 16000);
+        check(c.gain == DictationAudio.MAX_GAIN, "gain capped at " + c.gain);
+        for (float v : c.samples) check(v >= -1f && v <= 1f, "samples stay in range");
 
         System.out.println(checks + " Telegram Plus transcription checks passed");
     }

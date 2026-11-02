@@ -11689,6 +11689,12 @@
     <string name="TgPlusSpeechErrorAudioDownload">The voice message could not be downloaded.</string>
     <string name="TgPlusSpeakNow">Speak now (%1$d seconds)</string>
     <string name="TgPlusDictationHeard">Dictation test heard</string>
+    <string name="TgPlusDictationSlideToCancel">Slide left to cancel</string>
+    <string name="TgPlusDictationTranscribing">Transcribing…</string>
+    <string name="TgPlusDictationHold">Hold the button and speak</string>
+    <string name="TgPlusDictationNothing">Nothing was recognized</string>
+    <string name="TgPlusDictationQuiet">The microphone heard almost nothing. Check that it is not muted or covered.</string>
+    <string name="TgPlusDictationDescription">Dictate</string>
     <string name="TgPlusVoiceTranscription">Voice transcription</string>
     <string name="TgPlusRouteAutomatic">Automatic</string>
     <string name="TgPlusRouteOnDevice">Always on-device</string>

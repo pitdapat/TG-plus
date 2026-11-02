@@ -146,6 +146,9 @@ Goal: hold to dictate, see a small waveform in the input field, release to get e
 - **Errors:** model not downloaded → offer download; no mic permission → request it; empty result → short hint.
 - Mic permission: reuse the existing `RECORD_AUDIO` request flow from `ChatActivityEnterView`.
 
+### 5.5.1 Dictation (implemented)
+`TgPlusDictationController` (hold-to-dictate), `TgPlusDictationStrip` (red dot, timer, waveform, slide hint) and `TgPlusDictationRecorder` (16 kHz mono `AudioRecord`, 2 minute cap). The button sits just left of the clip (attach) button in `ChatActivityEnterView`, so sliding left to cancel moves away from the edge. The message field and the buttons left of the clip make room (44 dp, the same width as the clip) while it is shown. It follows the clip button's horizontal translation and the emoji button's alpha and scale. The strip is a fixed 44 dp high: a match-parent height made the whole input area fill the screen. Every piece sent to the recognizer (dictation, voice notes, round videos, and each 30 s chunk) gets 0.3 s of silence before and 0.8 s after, and quiet recordings are brought up to a normal level (`DictationAudio`). A desktop test with the sample clips showed that dropping the first 0.15 s of audio loses or garbles the first word, while the padding changes nothing for clean clips. The red dot, timer and buzz start only when the microphone is delivering audio, so you do not speak before it is recording. Slide left 110 dp to cancel; a hold under 0.5 s shows a hint. The text is inserted at the cursor with a leading space when needed. Long recordings are recognized in 30 s pieces (`AudioChunker`).
+
 ### 5.6 Behavior when the server route fails
 No fallback. If a Premium server request fails under "Automatic", show Telegram's normal error. (Single-user build; revisit if others use it.)
 

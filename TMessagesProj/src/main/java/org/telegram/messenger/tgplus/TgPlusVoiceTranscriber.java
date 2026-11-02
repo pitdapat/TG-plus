@@ -11,6 +11,7 @@ import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.Utilities;
 import org.telegram.messenger.tgplus.asr.AsrEngine;
 import org.telegram.messenger.tgplus.asr.AudioChunker;
+import org.telegram.messenger.tgplus.asr.DictationAudio;
 import org.telegram.messenger.tgplus.asr.ParakeetEngine;
 import org.telegram.messenger.tgplus.asr.TranscriptionRouting;
 import org.telegram.tgnet.TLRPC;
@@ -30,6 +31,8 @@ public final class TgPlusVoiceTranscriber {
         void onDone(String text, String error);
     }
 
+    private static final String ACTION_VOICE_NOTE = "voice_note";
+    private static final String ACTION_DICTATION = "dictation";
     private static final int SAMPLE_RATE = 16000;
     private static final long DOWNLOAD_TIMEOUT_MS = 2 * 60 * 1000;
 
@@ -46,12 +49,12 @@ public final class TgPlusVoiceTranscriber {
         final long start = SystemClock.elapsedRealtime();
         AsrEngine.Status status = ParakeetEngine.getInstance().getStatus();
         if (!status.isReady()) {
-            finish(message, callback, start, 0, 0, null, status.state == AsrEngine.State.ERROR ? status.code : "MODEL_MISSING");
+            finish(ACTION_VOICE_NOTE, callback, start, 0, 0, null, status.state == AsrEngine.State.ERROR ? status.code : "MODEL_MISSING");
             return;
         }
         withFile(message, (file, downloadError) -> {
             if (file == null) {
-                finish(message, callback, start, 0, 0, null, downloadError);
+                finish(ACTION_VOICE_NOTE, callback, start, 0, 0, null, downloadError);
                 return;
             }
             Utilities.globalQueue.postRunnable(() -> decodeAndRecognize(message, file, callback, start));
@@ -113,6 +116,34 @@ public final class TgPlusVoiceTranscriber {
         FileLoader.getInstance(account).loadFile(document, message, FileLoader.PRIORITY_NORMAL, 0);
     }
 
+    /**
+     * Transcribes dictated audio (16 kHz mono). Must be called on the main thread; the callback also runs
+     * there. Long recordings are recognized in pieces.
+     */
+    public static void transcribeDictation(short[] pcm, int length, Callback callback) {
+        final long start = SystemClock.elapsedRealtime();
+        if (pcm == null || length <= 0) {
+            finish(ACTION_DICTATION, callback, start, 0, 0, null, "AUDIO_DECODE");
+            return;
+        }
+        AsrEngine.Status status = ParakeetEngine.getInstance().getStatus();
+        if (!status.isReady()) {
+            finish(ACTION_DICTATION, callback, start, 0, 0, null, status.state == AsrEngine.State.ERROR ? status.code : "MODEL_MISSING");
+            return;
+        }
+        final DictationAudio.Prepared prepared = DictationAudio.prepare(pcm, length, SAMPLE_RATE);
+        final float[] samples = prepared.samples;
+        final long audioMs = length * 1000L / SAMPLE_RATE;
+        TgPlusDiagnostics.log(DiagnosticsLog.event("speech", "dictation_audio").ok()
+            .num("audio_ms", audioMs).num("peak_pct", Math.round(prepared.peak * 100)).num("gain_x10", Math.round(prepared.gain * 10)).build());
+        if (prepared.silent()) {
+            finish(ACTION_DICTATION, callback, start, audioMs, 0, null, "MIC_SILENT");
+            return;
+        }
+        final List<int[]> chunks = AudioChunker.split(samples, SAMPLE_RATE);
+        recognizeChunk(ACTION_DICTATION, samples, chunks, 0, new ArrayList<>(), callback, start, audioMs);
+    }
+
     private static void decodeAndRecognize(MessageObject message, File file, Callback callback, long start) {
         short[] pcm = null;
         try {
@@ -120,7 +151,7 @@ public final class TgPlusVoiceTranscriber {
                 pcm = TgPlusAudioDecoder.decodeTo16k(file);
             } else {
                 if (MediaController.isOpusFile(file.getAbsolutePath()) != 1) {
-                    finish(message, callback, start, 0, 0, null, "AUDIO_UNSUPPORTED");
+                    finish(ACTION_VOICE_NOTE, callback, start, 0, 0, null, "AUDIO_UNSUPPORTED");
                     return;
                 }
                 pcm = MediaController.decodeOpusTo16k(file.getAbsolutePath());
@@ -129,44 +160,42 @@ public final class TgPlusVoiceTranscriber {
             pcm = null;
         }
         if (pcm == null || pcm.length == 0) {
-            finish(message, callback, start, 0, 0, null, "AUDIO_DECODE");
+            finish(ACTION_VOICE_NOTE, callback, start, 0, 0, null, "AUDIO_DECODE");
             return;
         }
         if (pcm.length > (long) TranscriptionRouting.MAX_AUDIO_SECONDS * SAMPLE_RATE) {
-            finish(message, callback, start, pcm.length * 1000L / SAMPLE_RATE, 0, null, "AUDIO_TOO_LONG");
+            finish(ACTION_VOICE_NOTE, callback, start, pcm.length * 1000L / SAMPLE_RATE, 0, null, "AUDIO_TOO_LONG");
             return;
         }
-        final float[] samples = new float[pcm.length];
-        for (int i = 0; i < pcm.length; i++) samples[i] = pcm[i] / 32768f;
+        final float[] samples = DictationAudio.prepare(pcm, pcm.length, SAMPLE_RATE).samples;
         final long audioMs = pcm.length * 1000L / SAMPLE_RATE;
         final List<int[]> chunks = AudioChunker.split(samples, SAMPLE_RATE);
         final List<String> texts = new ArrayList<>();
-        AndroidUtilities.runOnUIThread(() -> recognizeChunk(message, samples, chunks, 0, texts, callback, start, audioMs));
+        AndroidUtilities.runOnUIThread(() -> recognizeChunk(ACTION_VOICE_NOTE, samples, chunks, 0, texts, callback, start, audioMs));
     }
 
     /** Runs the pieces one after the other; the engine delivers each result on the main thread. */
-    private static void recognizeChunk(MessageObject message, float[] samples, List<int[]> chunks, int index, List<String> texts,
+    private static void recognizeChunk(String action, float[] samples, List<int[]> chunks, int index, List<String> texts,
                                        Callback callback, long start, long audioMs) {
         if (index >= chunks.size()) {
-            finish(message, callback, start, audioMs, chunks.size(), AudioChunker.join(texts), null);
+            finish(action, callback, start, audioMs, chunks.size(), AudioChunker.join(texts), null);
             return;
         }
         int[] range = chunks.get(index);
-        float[] piece = new float[range[1] - range[0]];
-        System.arraycopy(samples, range[0], piece, 0, piece.length);
+        float[] piece = DictationAudio.pad(samples, range[0], range[1], SAMPLE_RATE);
         ParakeetEngine.getInstance().transcribeSamples(piece, SAMPLE_RATE, null, result -> {
             if (!result.ok()) {
-                finish(message, callback, start, audioMs, chunks.size(), null, result.error == null ? "ENGINE" : result.error);
+                finish(action, callback, start, audioMs, chunks.size(), null, result.error == null ? "ENGINE" : result.error);
                 return;
             }
             texts.add(result.text);
-            recognizeChunk(message, samples, chunks, index + 1, texts, callback, start, audioMs);
+            recognizeChunk(action, samples, chunks, index + 1, texts, callback, start, audioMs);
         });
     }
 
-    private static void finish(MessageObject message, Callback callback, long start, long audioMs, int chunks, String text, String error) {
+    private static void finish(String action, Callback callback, long start, long audioMs, int chunks, String text, String error) {
         long total = SystemClock.elapsedRealtime() - start;
-        DiagnosticsLog.Event.Builder event = DiagnosticsLog.event("speech", "voice_note");
+        DiagnosticsLog.Event.Builder event = DiagnosticsLog.event("speech", action);
         if (error == null) event.ok(); else event.fail(error);
         TgPlusDiagnostics.log(event.duration(total).num("audio_ms", audioMs).num("chunks", chunks)
             .num("chars", text == null ? 0 : text.length()).build());
