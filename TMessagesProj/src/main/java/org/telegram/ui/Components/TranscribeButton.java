@@ -781,6 +781,16 @@ public class TranscribeButton {
         }
     }
 
+    /** Telegram Plus: runs the on-device transcription again; the old text stays until the new one is ready. */
+    public static void retranscribeOnDevice(MessageObject messageObject) {
+        if (messageObject == null || messageObject.messageOwner == null || isTranscribing(messageObject) || !TgPlusVoiceTranscriber.canRetranscribe(messageObject)) {
+            return;
+        }
+        final int account = messageObject.currentAccount;
+        transcribeOnDevice(messageObject, messageObject.getDialogId(), messageObject.getId(), SystemClock.elapsedRealtime(), 350);
+        NotificationCenter.getInstance(account).postNotificationName(NotificationCenter.voiceTranscriptionUpdate, messageObject);
+    }
+
     /** Telegram Plus: transcribes a voice message with the model on this phone instead of asking Telegram. */
     private static void transcribeOnDevice(MessageObject messageObject, long dialogId, int messageId, long start, long minDuration) {
         final int account = messageObject.currentAccount;
