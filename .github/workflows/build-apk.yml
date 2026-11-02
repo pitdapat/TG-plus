@@ -3,16 +3,13 @@ name: Build Telegram Plus APK
 # One workflow for every branch. It builds the signed side-by-side app
 # (org.patrick.tgplus.web) and publishes it as a rolling GitHub Release per branch.
 #
-#  - Push to any branch: builds that branch (needs this file on the branch).
-#  - Run workflow (Actions tab): builds any branch, tag or SHA from the `ref` input,
-#    using THIS file from the branch it was started on (use master). The target
-#    branch does not need a copy of the workflow.
+# MANUAL ONLY: pushing does not start a build, so work can be iterated freely.
+# Start a build from the Actions tab ("Run workflow") or with:
+#   gh workflow run build-apk.yml --ref master -f ref=<branch, tag or SHA>
+# The `ref` input is the code that gets built. The workflow file itself is taken from
+# the branch chosen in "Use workflow from" (use master), so the target branch does not
+# need its own copy.
 on:
-  push:
-    branches: ['**']
-    paths-ignore:
-      - '**.md'
-      - 'LICENSE'
   workflow_dispatch:
     inputs:
       ref:
