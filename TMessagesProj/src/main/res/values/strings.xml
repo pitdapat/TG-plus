@@ -11298,6 +11298,8 @@
     <string name="RoundVideoBitrate">Video bitrate</string>
     <string name="RoundVideoStabilization">Video stabilization</string>
     <string name="RoundVideoStabilizationInfo">Steadier video, slightly narrower view</string>
+    <string name="RoundVideoLowLightBoost">Low-light boost</string>
+    <string name="RoundVideoLowLightBoostInfo">In very dark rooms: slower frame rate and brighter shadows</string>
     <string name="RoundVideoMotionPriority">Motion priority</string>
     <string name="RoundVideoMotionPriorityInfo">Faster shutter in dim light: less blur, more grain</string>
     <string name="RoundVideoMotionPriorityOff">Off</string>

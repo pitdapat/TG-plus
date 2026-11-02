@@ -86,6 +86,9 @@ final class RoundVideoGlProcessor {
     private final float[] textureMatrix = new float[16];
     private final float[] secondaryTextureMatrix = new float[16];
     private RoundVideoOverlayRenderer overlayRenderer;
+    private volatile float liftTarget;
+    private float liftCurrent;
+    private long liftUpdatedNs;
     private int gpuTimingFrame;
     private int outputSizeCheckFrame;
     private long lastFrameTime;
@@ -635,6 +638,26 @@ final class RoundVideoGlProcessor {
         );
     }
 
+    /** Sets the shadow lift to ease toward; any thread. */
+    public void setLift(float target) {
+        liftTarget = Math.max(0f, Math.min(0.5f, target));
+    }
+
+    /** Eases the lift toward its target over ~0.9 s so brightness never jumps. */
+    private void stepLift() {
+        long now = SystemClock.elapsedRealtimeNanos();
+        float target = liftTarget;
+        if (liftUpdatedNs == 0L) {
+            liftCurrent = target;
+        } else {
+            float dt = Math.min(0.2f, (now - liftUpdatedNs) / 1_000_000_000f);
+            float step = 1f - (float) Math.exp(-dt / 0.3f);
+            liftCurrent += (target - liftCurrent) * step;
+        }
+        liftUpdatedNs = now;
+        if (overlayRenderer != null) overlayRenderer.setLift(liftCurrent);
+    }
+
     private void drawFrame(boolean secondary) {
         SurfaceTexture surfaceTexture = secondary
                 ? secondaryInputSurfaceTexture
@@ -647,6 +670,7 @@ final class RoundVideoGlProcessor {
             int cameraTexture = secondary ? secondaryTextureId : textureId;
             surfaceTexture.updateTexImage();
             surfaceTexture.getTransformMatrix(matrix);
+            stepLift();
             long timestamp = surfaceTexture.getTimestamp();
             inputFrames++;
             long inputCount;

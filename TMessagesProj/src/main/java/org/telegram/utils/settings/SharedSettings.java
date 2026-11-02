@@ -36,6 +36,9 @@ public final class SharedSettings {
     public static final EnumSetting<RoundVideoSession.MotionPriority> roundVideoMotionPriorityLevel =
         EnumSetting.of("round_video_motion_priority_level", RoundVideoSession.MotionPriority.BALANCED);
 
+    public static final BooleanSetting roundVideoLowLightBoost =
+        BooleanSetting.of("round_video_low_light_boost", true);
+
     public static final BooleanSetting roundVideoComposition =
         BooleanSetting.of("round_video_composition", true);
 
@@ -53,6 +56,7 @@ public final class SharedSettings {
         roundVideoVideoBitrate.reset();
         roundVideoMotionPriorityLevel.reset();
         roundVideoStabilization.reset();
+        roundVideoLowLightBoost.reset();
         roundVideoComposition.reset();
     }
 

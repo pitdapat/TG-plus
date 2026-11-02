@@ -86,8 +86,10 @@ final class RoundVideoOverlayRenderer {
             "uniform samplerExternalOES sTexture;\n" +
             "uniform sampler2D bTexture;\n" +
             "uniform sampler2D mTexture;\n" +
+            "uniform float uLift;\n" +
             "void main() {\n" +
             "    vec3 sharp = texture2D(sTexture, vTextureCoord).rgb;\n" +
+            "    sharp += uLift * 2.0 * sharp * (1.0 - sharp);\n" +
             "    vec3 blurred = texture2D(bTexture, vScreenTextureCoord).rgb * 0.25;\n" +
             "    float mask = texture2D(mTexture, vScreenTextureCoord).a;\n" +
             "    gl_FragColor = vec4(mix(blurred, sharp, mask), 1.0);\n" +
@@ -110,8 +112,12 @@ final class RoundVideoOverlayRenderer {
             "precision mediump float;\n" +
             "varying vec2 vTextureCoord;\n" +
             "uniform samplerExternalOES sTexture;\n" +
+            "uniform float uLift;\n" +
             "void main() {\n" +
-            "    gl_FragColor = texture2D(sTexture, vTextureCoord);\n" +
+            "    vec4 color = texture2D(sTexture, vTextureCoord);\n" +
+            // Shadow lift: brightens darks and mids, leaves black and white in place.
+            "    color.rgb += uLift * 2.0 * color.rgb * (1.0 - color.rgb);\n" +
+            "    gl_FragColor = color;\n" +
             "}\n";
 
     private static final String COPY_FRAGMENT_SHADER =
@@ -242,6 +248,7 @@ final class RoundVideoOverlayRenderer {
             );
 
     private final int outputSize;
+    private float lift;
     private final int switchNewBlurSize;
     private Size inputSize;
     private int sourceCropSize;
@@ -842,6 +849,12 @@ final class RoundVideoOverlayRenderer {
                 selectedTextureBuffer
         );
         GLES20.glUniformMatrix4fv(program.textureMatrixHandle, 1, false, textureMatrix, 0);
+        if (program.liftHandle >= 0) GLES20.glUniform1f(program.liftHandle, lift);
+    }
+
+    /** Shadow lift for the next frames (0 = none). GL thread only. */
+    void setLift(float value) {
+        lift = value;
     }
 
     private void bindProgram(Program program, int textureOffset, int vertexOffset) {
@@ -1289,10 +1302,13 @@ final class RoundVideoOverlayRenderer {
 
     private static class CameraProgram extends Program {
         final int textureMatrixHandle;
+        final int liftHandle;
 
         CameraProgram(String fragmentShaderSource) {
             super(CAMERA_VERTEX_SHADER, fragmentShaderSource);
             textureMatrixHandle = GLES20.glGetUniformLocation(program, "uTextureMatrix");
+            // -1 for shaders without the uniform; glUniform1f ignores that.
+            liftHandle = GLES20.glGetUniformLocation(program, "uLift");
         }
     }
 

@@ -504,7 +504,7 @@ public final class RoundVideoCameraProbe {
             long durationMs,
             @NonNull LumaMeter luma
     ) throws Exception {
-        RoundVideoExposureController exposure = new RoundVideoExposureController(c, motionPriority, fps);
+        RoundVideoExposureController exposure = new RoundVideoExposureController(c, motionPriority, false, fps);
         Range<Integer> fpsRange = RoundVideoCameraController.findBestFpsRange(
                 c.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES), fps);
         PhaseStats stats = new PhaseStats(SystemClock.elapsedRealtime() + WARMUP_MS);
