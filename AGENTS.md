@@ -11,11 +11,23 @@ We iterate until the features are done and then run the full build once.
 - To build when asked:
   - Actions tab > Build Telegram Plus APK > Run workflow, or
   - `gh workflow run build-apk.yml --ref master -f ref=<branch, tag or SHA>`
-- `ref` is the code that gets built. Blank means the branch the run was started from.
-  The workflow file is read from the branch chosen in "Use workflow from" (use `master`),
-  so the target branch does not need its own copy.
-- A build takes about 6 to 7 minutes and publishes a rolling prerelease tagged
-  `build-<branch>` (the default branch gets the "latest" release).
+- A build takes about 3 to 7 minutes, depending on cache hits, and publishes a rolling
+  prerelease tagged `build-<branch>` (the default branch gets the "latest" release).
+
+### Always run the workflow from `master`
+
+Always start the build with **"Use workflow from" = `master`** (`--ref master` in the
+command). Never use a feature branch's copy of `build-apk.yml`: copies on old branches
+are out of date and have different steps. `master` is the single source of truth, and the
+branch being built does not need its own copy.
+
+- "Use workflow from" picks the workflow **file**. The `ref` input picks the **code that is built**.
+- Always fill in `ref` with the branch to build. If `ref` is blank, the build uses the
+  branch the run was started from, so a blank `ref` on `master` builds `master`.
+- Change the workflow only through `master`. Do not edit `build-apk.yml` on feature branches.
+- The build runs the built branch's own `tools/*.py` and `tests/`. A branch without
+  `tools/prepare_signing.py`, `tools/verify_firebase_apk.py` and
+  `tools/test_push_diagnostics.py` fails with a clear error. Merge `master` into it first.
 
 ## Check locally before asking for a build
 
