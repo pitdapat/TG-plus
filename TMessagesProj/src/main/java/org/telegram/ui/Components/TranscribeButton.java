@@ -801,6 +801,7 @@ public class TranscribeButton {
                 }
                 return;
             }
+            openVideoTranscription(messageObject);
             messageObject.messageOwner.voiceTranscriptionOpen = true;
             messageObject.messageOwner.voiceTranscriptionFinal = true;
             MessagesStorage.getInstance(account).updateMessageVoiceTranscription(dialogId, messageId, text, messageObject.messageOwner);

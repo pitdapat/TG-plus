@@ -1,4 +1,5 @@
 import org.telegram.messenger.tgplus.asr.AudioChunker;
+import org.telegram.messenger.tgplus.asr.PcmConverter;
 import org.telegram.messenger.tgplus.asr.TranscriptionRouting;
 
 import java.util.ArrayList;
@@ -69,6 +70,40 @@ public class TgPlusTranscriptionTest {
         // Joining text
         check(AudioChunker.join(Arrays.asList("hello", " world ", "", null, "again")).equals("hello world again"), "join skips empty");
         check(AudioChunker.join(new ArrayList<>()).isEmpty(), "join of nothing");
+
+        // PCM conversion
+        short[] stereo = {1000, 3000, -2000, -4000, 500, 501};
+        short[] mono = new short[3];
+        PcmConverter.downmix(stereo, 0, 3, 2, mono, 0);
+        check(mono[0] == 2000 && mono[1] == -3000 && mono[2] == 500, "stereo averaged to mono");
+        short[] passthrough = new short[2];
+        PcmConverter.downmix(new short[]{7, 9}, 0, 2, 1, passthrough, 0);
+        check(passthrough[0] == 7 && passthrough[1] == 9, "mono copied");
+        short[] six = new short[6];
+        PcmConverter.downmix(new short[]{0, 0, 0, 6, 6, 6, 3, 3, 3, 0, 0, 0}, 0, 2, 6, six, 0);
+        check(six[0] == 3 && six[1] == 1, "six channels averaged");
+
+        short[] dc48 = new short[48000];
+        Arrays.fill(dc48, (short) 1234);
+        short[] r48 = PcmConverter.toMono16k(dc48, dc48.length, 48000);
+        check(r48.length == 16000, "48 kHz -> 16000 samples, got " + r48.length);
+        check(r48[0] == 1234 && r48[8000] == 1234 && r48[15999] == 1234, "constant level kept at 48 kHz");
+        short[] dc44 = new short[44100];
+        Arrays.fill(dc44, (short) -800);
+        short[] r44 = PcmConverter.toMono16k(dc44, dc44.length, 44100);
+        check(r44.length == 16000, "44.1 kHz -> 16000 samples, got " + r44.length);
+        check(r44[0] == -800 && r44[7000] == -800 && r44[15999] == -800, "constant level kept at 44.1 kHz");
+        short[] same = PcmConverter.toMono16k(new short[]{1, 2, 3}, 3, 16000);
+        check(same.length == 3 && same[2] == 3, "16 kHz unchanged");
+        check(PcmConverter.toMono16k(new short[0], 0, 48000).length == 0, "empty input");
+        check(PcmConverter.toMono16k(new short[]{1}, 1, 0).length == 0, "bad rate");
+        // A 1 kHz tone keeps its frequency: count zero crossings over one second.
+        short[] tone = new short[48000];
+        for (int i = 0; i < tone.length; i++) tone[i] = (short) (10000 * Math.sin(2 * Math.PI * 1000 * i / 48000.0));
+        short[] t16 = PcmConverter.toMono16k(tone, tone.length, 48000);
+        int crossings = 0;
+        for (int i = 1; i < t16.length; i++) if ((t16[i - 1] < 0) != (t16[i] < 0)) crossings++;
+        check(Math.abs(crossings - 2000) <= 4, "1 kHz tone survives resampling, crossings " + crossings);
 
         System.out.println(checks + " Telegram Plus transcription checks passed");
     }

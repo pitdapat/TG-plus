@@ -20,7 +20,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Transcribes voice messages on the phone with the Parakeet model. The result is handed back as plain
+ * Transcribes voice messages and round videos on the phone with the Parakeet model. The result is handed back as plain
  * text, so the chat shows it exactly as it shows a transcript from Telegram.
  */
 public final class TgPlusVoiceTranscriber {
@@ -37,7 +37,7 @@ public final class TgPlusVoiceTranscriber {
 
     /** True if this voice message is transcribed on the phone under the current setting. */
     public static boolean useOnDevice(MessageObject message) {
-        if (message == null || message.messageOwner == null || !message.isVoice()) return false;
+        if (message == null || message.messageOwner == null || !(message.isVoice() || message.isRoundVideo())) return false;
         boolean premium = UserConfig.getInstance(message.currentAccount).isPremium();
         return TranscriptionRouting.useOnDevice(TgPlusSettings.getTranscriptionRoute(), premium);
     }
@@ -116,11 +116,15 @@ public final class TgPlusVoiceTranscriber {
     private static void decodeAndRecognize(MessageObject message, File file, Callback callback, long start) {
         short[] pcm = null;
         try {
-            if (MediaController.isOpusFile(file.getAbsolutePath()) != 1) {
-                finish(message, callback, start, 0, 0, null, "AUDIO_UNSUPPORTED");
-                return;
+            if (message.isRoundVideo()) {
+                pcm = TgPlusAudioDecoder.decodeTo16k(file);
+            } else {
+                if (MediaController.isOpusFile(file.getAbsolutePath()) != 1) {
+                    finish(message, callback, start, 0, 0, null, "AUDIO_UNSUPPORTED");
+                    return;
+                }
+                pcm = MediaController.decodeOpusTo16k(file.getAbsolutePath());
             }
-            pcm = MediaController.decodeOpusTo16k(file.getAbsolutePath());
         } catch (Throwable t) {
             pcm = null;
         }
