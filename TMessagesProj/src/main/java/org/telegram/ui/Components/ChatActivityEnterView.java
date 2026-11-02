@@ -8826,7 +8826,10 @@ public class ChatActivityEnterView extends FrameLayout implements
         if (tgplusDictationShown()) {
             // Telegram Plus: the dictation button takes the space just left of what is already on the right.
             MarginLayoutParams dictation = (MarginLayoutParams) tgplusDictationButton.getLayoutParams();
-            int dictationRight = Math.max(0, layoutParams.rightMargin - dp(2));
+            // Right against the clip button, with the same gap the clip has to the mic: both buttons are
+            // 44 dp wide and touch, so the icons end up 44 dp apart. A send button wider than that pushes it left.
+            boolean clipShown = attachVisible == 1 || attachVisible == 2;
+            int dictationRight = Math.max(clipShown ? dp(DEFAULT_HEIGHT) : 0, Math.max(0, sendButton.width() - dp(DEFAULT_HEIGHT)));
             if (dictation.rightMargin != dictationRight) {
                 dictation.rightMargin = dictationRight;
                 tgplusDictationButton.setLayoutParams(dictation);
@@ -14858,7 +14861,7 @@ public class ChatActivityEnterView extends FrameLayout implements
         ) : 0));
     }
 
-    private static final int TGPLUS_DICTATION_WIDTH = 40;
+    private static final int TGPLUS_DICTATION_WIDTH = DEFAULT_HEIGHT;
 
     private void createTgPlusDictationButton(Context context) {
         tgplusDictationButton = new ImageView(context);
