@@ -37,3 +37,15 @@ The updater in `org.telegram.messenger.tgplus.UpdatePolicy` parses the published
 
 - tag: `build-<branch>` (one rolling release per branch)
 - asset: `TelegramPlus-<version>-<branch>-build<run number>-<sha7>.apk`
+
+## Do not push while a build is running
+
+Publishing creates a git tag with the repo's `GITHUB_TOKEN`. GitHub rejects that
+(`HTTP 403: Resource not accessible by integration` on `gh release create`) when the built
+commit's `.github/workflows/` differs from the latest commit of every branch. If a push
+changes the workflow files while a build runs, the build job passes but the publish job
+fails, and re-running it fails the same way.
+
+- Build a branch tip (leave `ref` blank or give a branch name), not an older SHA.
+- Do not push workflow changes to that branch until the run has finished.
+- If it happened anyway, start a new run on the current tip.
