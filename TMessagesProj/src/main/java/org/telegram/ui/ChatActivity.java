@@ -24645,8 +24645,8 @@ public class ChatActivity extends BaseFragment implements
                 return;
             }
             final long tgplusHandlerStart = SystemClock.elapsedRealtime();
-            updateMessageTranslation(messageObject, summary);
-            TgPlusInlineTranslations.onApplied(messageObject, tgplusHandlerStart);
+            final boolean tgplusRowUpdated = updateMessageTranslation(messageObject, summary);
+            TgPlusInlineTranslations.onApplied(messageObject, tgplusHandlerStart, tgplusRowUpdated);
             if (args.length > 2 && (boolean) args[2]) {
                 checkTranslation(true);
             }

@@ -108,6 +108,22 @@ public class TgPlusUiSpeedTest {
         for (String line : UiSpeedSummary.lines(events)) check(line.length() < 200, "line too long: " + line.length());
         checks++;
 
+        // Delivery: translations that were saved but never shown live, and answers that arrived mid-animation.
+        ArrayList<DiagnosticsLog.Event> delivery = new ArrayList<>();
+        delivery.add(DiagnosticsLog.event("ui", "translate_apply").ok().duration(1000).num("net_ms", 900).flag("anim", false).build());
+        delivery.add(DiagnosticsLog.event("ui", "translate_apply").ok().duration(2500).num("net_ms", 900).flag("anim", true).build());
+        delivery.add(DiagnosticsLog.event("ui", "translate_apply").fail("NOT_SHOWN").duration(1200).num("net_ms", 900).flag("anim", true).build());
+        List<String> dl = UiSpeedSummary.lines(delivery);
+        check(has(dl, "Translate delivery: 2 shown live, 1 saved but NOT shown until the chat was reopened, 1 answered while the chat list was animating"),
+            "delivery line: " + all(dl));
+        // A normal run adds no delivery line.
+        check(!has(UiSpeedSummary.lines(tr), "Translate delivery"), "delivery line should be absent when all is well");
+        // Only failures and no other data still reports them rather than the empty hint.
+        ArrayList<DiagnosticsLog.Event> onlyFail = new ArrayList<>();
+        onlyFail.add(DiagnosticsLog.event("ui", "translate_apply").fail("NOT_SHOWN").duration(900).build());
+        check(has(UiSpeedSummary.lines(onlyFail), "1 saved but NOT shown"), "failure-only: " + all(UiSpeedSummary.lines(onlyFail)));
+        checks++;
+
         System.out.println(checks + " Telegram Plus UI speed checks passed");
     }
 }

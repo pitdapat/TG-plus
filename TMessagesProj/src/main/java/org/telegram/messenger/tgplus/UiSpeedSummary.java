@@ -32,12 +32,19 @@ public final class UiSpeedSummary {
     public static List<String> lines(List<DiagnosticsLog.Event> events) {
         ArrayList<String> lines = new ArrayList<>();
         ArrayList<DiagnosticsLog.Event> ui = new ArrayList<>();
+        int notShown = 0;
         if (events != null) {
             for (DiagnosticsLog.Event e : events) {
-                if (e != null && "ui".equals(e.feature) && "ok".equals(e.outcome)) ui.add(e);
+                if (e == null || !"ui".equals(e.feature)) continue;
+                if ("ok".equals(e.outcome)) {
+                    ui.add(e);
+                } else if (e.failed() && "translate_apply".equals(e.action)) {
+                    // Saved, but no visible message was updated: shows only after reopening the chat.
+                    notShown++;
+                }
             }
         }
-        if (ui.isEmpty()) {
+        if (ui.isEmpty() && notShown == 0) {
             lines.add("No UI speed data yet. Open a few chats, translate a message, scroll, then reopen the chat.");
             return lines;
         }
@@ -45,6 +52,8 @@ public final class UiSpeedSummary {
         String first = firstOpenLine(ui);
         if (first != null) lines.add(first);
         lines.add(translateLine(ui));
+        String delivery = deliveryLine(ui, notShown);
+        if (delivery != null) lines.add(delivery);
         lines.add(scrollLine(ui));
         return lines;
     }
@@ -99,6 +108,22 @@ public final class UiSpeedSummary {
         return "Translate tap to visible: n=" + total.size() + " median " + median(total) + " ms (Gemini " + median(net)
             + ", save/queue " + median(wait) + ", layout " + median(apply) + ", frame " + median(frame) + "); excluding Gemini "
             + median(ours) + " ms";
+    }
+
+    /** Whether translations appeared live. Only shown when something is worth knowing. */
+    private static String deliveryLine(List<DiagnosticsLog.Event> ui, int notShown) {
+        int shown = 0, animating = 0;
+        for (DiagnosticsLog.Event e : ui) {
+            if (!"translate_apply".equals(e.action)) continue;
+            shown++;
+            if ("yes".equals(e.fields.get("anim"))) animating++;
+        }
+        if (notShown == 0 && animating == 0) return null;
+        StringBuilder out = new StringBuilder("Translate delivery: ");
+        out.append(shown).append(" shown live");
+        if (notShown > 0) out.append(", ").append(notShown).append(" saved but NOT shown until the chat was reopened");
+        if (animating > 0) out.append(", ").append(animating).append(" answered while the chat list was animating");
+        return out.toString();
     }
 
     private static String scrollLine(List<DiagnosticsLog.Event> ui) {

@@ -40,6 +40,8 @@ public final class TgPlusUiSpeed {
     private static final class TranslateTiming {
         long tapAt, resultAt;
         int chars;
+        /** The chat list was animating when Gemini answered (Telegram holds most updates back then). */
+        boolean animating;
     }
 
     public static synchronized void translateTapped(String key) {
@@ -54,11 +56,12 @@ public final class TgPlusUiSpeed {
     }
 
     /** Gemini answered; the translation is about to be applied to the chat. */
-    public static synchronized void translateResult(String key, int chars) {
+    public static synchronized void translateResult(String key, int chars, boolean animating) {
         TranslateTiming t = key == null ? null : translateTimings.get(key);
         if (t != null) {
             t.resultAt = SystemClock.elapsedRealtime();
             t.chars = chars;
+            t.animating = animating;
         }
     }
 
@@ -68,9 +71,11 @@ public final class TgPlusUiSpeed {
 
     /**
      * The chat has handled the "message translated" notification, started at {@code handlerStartedAt}.
-     * Waits for two frames: the first draws the change, the second starts when it is on screen.
+     * {@code updated} is false if no visible message row was changed, which means the translation was
+     * saved but not shown until the chat is reopened. Otherwise waits for two frames: the first draws
+     * the change, the second starts when it is on screen.
      */
-    public static void translationApplied(String key, long handlerStartedAt) {
+    public static void translationApplied(String key, long handlerStartedAt, boolean updated) {
         try {
             final TranslateTiming t;
             synchronized (TgPlusUiSpeed.class) {
@@ -83,6 +88,17 @@ public final class TgPlusUiSpeed {
             final long net = t.resultAt - t.tapAt;
             final long wait = Math.max(0, handlerStartedAt - t.resultAt);
             final long apply = Math.max(0, applied - handlerStartedAt);
+            if (!updated) {
+                TgPlusDiagnostics.log(DiagnosticsLog.event("ui", "translate_apply").fail("NOT_SHOWN")
+                    .duration(applied - t.tapAt)
+                    .num("net_ms", net)
+                    .num("wait_ms", wait)
+                    .num("apply_ms", apply)
+                    .flag("anim", t.animating)
+                    .num("chars", t.chars)
+                    .build());
+                return;
+            }
             final Choreographer choreographer = Choreographer.getInstance();
             choreographer.postFrameCallback(first -> {
                 final long frameStart = SystemClock.elapsedRealtime();
@@ -94,6 +110,7 @@ public final class TgPlusUiSpeed {
                         .num("wait_ms", wait)
                         .num("apply_ms", apply)
                         .num("frame_ms", visible - frameStart)
+                        .flag("anim", t.animating)
                         .num("chars", t.chars)
                         .build());
                 });

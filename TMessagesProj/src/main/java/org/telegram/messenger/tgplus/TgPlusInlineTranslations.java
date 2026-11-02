@@ -133,7 +133,8 @@ public final class TgPlusInlineTranslations {
         GeminiTranslator.translate(m.messageOwner.message, m.messageOwner.originalLanguage, target, "inline", result -> {
             pending.remove(key);
             if (result.ok()) {
-                TgPlusUiSpeed.translateResult(key, result.text.length());
+                // Recorded for diagnostics: Telegram would have held this update back if a list animation was running.
+                TgPlusUiSpeed.translateResult(key, result.text.length(), NotificationCenter.getInstance(m.currentAccount).isAnimationInProgress());
                 save(key, editDate, target, result.text);
             } else {
                 TgPlusUiSpeed.translateEnded(key);
@@ -147,9 +148,9 @@ public final class TgPlusInlineTranslations {
      * Called by the chat after it handled a message-translated notification that began at
      * {@code handlerStartedAt}; completes the tap-to-visible measurement (UI speed diagnostics).
      */
-    public static void onApplied(MessageObject m, long handlerStartedAt) {
+    public static void onApplied(MessageObject m, long handlerStartedAt, boolean rowUpdated) {
         String key = key(m);
-        if (key != null) TgPlusUiSpeed.translationApplied(key, handlerStartedAt);
+        if (key != null) TgPlusUiSpeed.translationApplied(key, handlerStartedAt, rowUpdated);
     }
 
     public static void hide(MessageObject m) {
@@ -189,8 +190,13 @@ public final class TgPlusInlineTranslations {
         return prefs().getAll().size();
     }
 
+    /**
+     * Tells the chat to redraw this message. While the chat list is animating, Telegram holds back every
+     * notification that is not on a short allow-list (for up to 5 seconds), and messageTranslated is not
+     * on it, so the translation could show up late or only after reopening the chat. Deliver it right away.
+     */
     private static void notifyChanged(MessageObject m) {
-        NotificationCenter.getInstance(m.currentAccount).postNotificationName(NotificationCenter.messageTranslated, m);
+        NotificationCenter.getInstance(m.currentAccount).postNotificationNameInternal(NotificationCenter.messageTranslated, true, m);
     }
 
     /** Original + separator + translation, for {@link MessageObject} to lay out. */
