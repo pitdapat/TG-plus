@@ -148,6 +148,10 @@ final class RoundVideoCameraController {
     private final boolean compositionEnabled;
     private final boolean videoStabilizationEnabled;
     private final RoundVideoSession.MotionPriority motionPriority;
+    private final boolean lowLightBoost;
+    /** Shadow lift currently shown on the direct (non-GL) preview; main thread only. */
+    private float previewLift;
+    private android.animation.ValueAnimator previewLiftAnimator;
     private final RoundVideoDiagnostics diagnostics;
     private final Callback callback;
     private final Rect zoomCropRect = new Rect();
@@ -290,6 +294,7 @@ final class RoundVideoCameraController {
             boolean compositionEnabled,
             boolean videoStabilizationEnabled,
             @NonNull RoundVideoSession.MotionPriority motionPriority,
+            boolean lowLightBoost,
             @NonNull RoundVideoDiagnostics diagnostics,
             @NonNull Callback callback
     ) {
@@ -304,6 +309,7 @@ final class RoundVideoCameraController {
         this.compositionEnabled = compositionEnabled;
         this.videoStabilizationEnabled = videoStabilizationEnabled;
         this.motionPriority = motionPriority;
+        this.lowLightBoost = lowLightBoost;
         this.diagnostics = diagnostics;
         this.callback = callback;
         previewView.addOnLayoutChangeListener(layoutChangeListener);
@@ -1165,6 +1171,47 @@ final class RoundVideoCameraController {
         diagnostics.log("dual camera marked unsupported for this device: reason=" + reason);
     }
 
+    /** Brightens shadows in the recording (GL) and, when the preview bypasses GL, on screen. */
+    private void applyLift(float target) {
+        RoundVideoGlProcessor processor = glProcessor;
+        if (processor != null) processor.setLift(target);
+        if (glPreviewEnabled) return;
+        previewView.post(() -> animatePreviewLift(target));
+    }
+
+    private void animatePreviewLift(float target) {
+        if (previewLiftAnimator != null && previewLiftAnimator.isRunning()) {
+            if (Math.abs((float) previewLiftAnimator.getAnimatedValue() - target) < 0.001f) return;
+        } else if (Math.abs(previewLift - target) < 0.001f) {
+            return;
+        }
+        if (previewLiftAnimator != null) previewLiftAnimator.cancel();
+        previewLiftAnimator = android.animation.ValueAnimator.ofFloat(previewLift, target);
+        previewLiftAnimator.setDuration(900);
+        previewLiftAnimator.addUpdateListener(animation -> {
+            previewLift = (float) animation.getAnimatedValue();
+            setPreviewLiftPaint(previewLift);
+        });
+        previewLiftAnimator.start();
+    }
+
+    /**
+     * The direct camera preview cannot run the GL tone curve, so approximate it with a gain:
+     * f(c) = c + 2k·c(1-c) lifts mid-shadows by about 1 + 1.4k.
+     */
+    private void setPreviewLiftPaint(float lift) {
+        if (lift < 0.005f) {
+            previewView.setLayerPaint(null);
+            return;
+        }
+        float gain = 1f + 1.4f * lift;
+        android.graphics.ColorMatrix matrix = new android.graphics.ColorMatrix();
+        matrix.setScale(gain, gain, gain, 1f);
+        android.graphics.Paint paint = new android.graphics.Paint();
+        paint.setColorFilter(new android.graphics.ColorMatrixColorFilter(matrix));
+        previewView.setLayerPaint(paint);
+    }
+
     private void disableWarmSwitch(@NonNull String reason, @Nullable Exception error) {
         warmSwitchDisabled = true;
         warmSwitchSupported = false;
@@ -1724,6 +1771,12 @@ final class RoundVideoCameraController {
         setContinuousVideoAf(builder, selection.characteristics);
         if (selection.fpsRange != null) {
             builder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, selection.fpsRange);
+            Range<Integer> lowLightRange = activeControls && exposureController != null
+                    ? exposureController.getLowLightFpsRange()
+                    : null;
+            if (lowLightRange != null) {
+                builder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, lowLightRange);
+            }
             if (logConfiguration) {
                 diagnostics.log("capture FPS range selected: " + selection.fpsRange
                         + ", cameraId=" + selection.id
@@ -1788,9 +1841,13 @@ final class RoundVideoCameraController {
                     if (exposure != null && exposure.onCaptureResult(result)) {
                         diagnostics.log("motion priority: mode=" + exposure.getMode()
                                 + ", strategy=" + exposure.getStrategy()
-                                + ", limitMs=" + exposure.getExposureLimitNs() / 1_000_000f);
+                                + ", limitMs=" + exposure.getExposureLimitNs() / 1_000_000f
+                                + ", lowLight=" + exposure.isLowLight()
+                                + ", lowLightFps=" + exposure.getLowLightFpsRange()
+                                + ", lift=" + exposure.getLiftTarget());
                         applyRepeatingRequest();
                     }
+                    if (exposure != null) applyLift(exposure.getLiftTarget());
                     Long timestampNs = result.get(CaptureResult.SENSOR_TIMESTAMP);
                     if (timestampNs == null || timestampNs <= captureFpsLastTimestampNs) return;
                     long callbackNs = SystemClock.elapsedRealtimeNanos();
@@ -2111,6 +2168,7 @@ final class RoundVideoCameraController {
         exposureController = new RoundVideoExposureController(
                 selectedCharacteristics,
                 motionPriority,
+                lowLightBoost,
                 activeFrameRate.getValue()
         );
         frameRateFallbackAttempted = false;
@@ -2199,6 +2257,7 @@ final class RoundVideoCameraController {
             exposureController = new RoundVideoExposureController(
                     characteristics,
                     motionPriority,
+                    lowLightBoost,
                     activeFrameRate.getValue()
             );
         }
@@ -2524,6 +2583,7 @@ final class RoundVideoCameraController {
             exposureController = new RoundVideoExposureController(
                     characteristics,
                     motionPriority,
+                    lowLightBoost,
                     30
             );
         }

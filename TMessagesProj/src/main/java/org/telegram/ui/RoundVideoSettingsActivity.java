@@ -40,15 +40,16 @@ public class RoundVideoSettingsActivity extends BaseFragment {
     private static final int ROW_BITRATE = 5;
     private static final int ROW_MOTION_PRIORITY = 6;
     private static final int ROW_STABILIZATION = 7;
-    private static final int ROW_GENERAL_INFO = 8;
-    private static final int ROW_DIAGNOSTICS_HEADER = 9;
-    private static final int ROW_DIAGNOSTICS = 10;
-    private static final int ROW_RESET = 11;
-    private static final int ROW_DIAGNOSTICS_INFO = 12;
-    private static final int ROW_COMPOSITION_HEADER = 13;
-    private static final int ROW_COMPOSITION = 14;
-    private static final int ROW_COMPOSITION_INFO = 15;
-    private static final int ROW_COUNT = BuildConfig.DEBUG_PRIVATE_VERSION ? 16 : 13;
+    private static final int ROW_LOW_LIGHT = 8;
+    private static final int ROW_GENERAL_INFO = 9;
+    private static final int ROW_DIAGNOSTICS_HEADER = 10;
+    private static final int ROW_DIAGNOSTICS = 11;
+    private static final int ROW_RESET = 12;
+    private static final int ROW_DIAGNOSTICS_INFO = 13;
+    private static final int ROW_COMPOSITION_HEADER = 14;
+    private static final int ROW_COMPOSITION = 15;
+    private static final int ROW_COMPOSITION_INFO = 16;
+    private static final int ROW_COUNT = BuildConfig.DEBUG_PRIVATE_VERSION ? 17 : 14;
 
     private static final int[] BITRATES = {
             750_000,
@@ -172,6 +173,9 @@ public class RoundVideoSettingsActivity extends BaseFragment {
                             RoundVideoSession.MotionPriority.values()[index]
                     )
             );
+        } else if (position == ROW_LOW_LIGHT) {
+            SharedSettings.roundVideoLowLightBoost.set(!SharedSettings.roundVideoLowLightBoost.get());
+            adapter.notifyItemChanged(position);
         } else if (position == ROW_STABILIZATION) {
             SharedSettings.roundVideoStabilization.set(!SharedSettings.roundVideoStabilization.get());
             adapter.notifyItemChanged(position);
@@ -250,6 +254,7 @@ public class RoundVideoSettingsActivity extends BaseFragment {
                     || position == ROW_BITRATE
                     || position == ROW_MOTION_PRIORITY
                     || position == ROW_STABILIZATION
+                    || position == ROW_LOW_LIGHT
                     || position == ROW_COMPOSITION;
         }
 
@@ -294,13 +299,21 @@ public class RoundVideoSettingsActivity extends BaseFragment {
                             enabled,
                             false
                     );
+                } else if (position == ROW_LOW_LIGHT) {
+                    cell.setTextAndValueAndCheck(
+                            LocaleController.getString(R.string.RoundVideoLowLightBoost),
+                            LocaleController.getString(R.string.RoundVideoLowLightBoostInfo),
+                            SharedSettings.roundVideoLowLightBoost.get(),
+                            false,
+                            false
+                    );
                 } else if (position == ROW_STABILIZATION) {
                     cell.setTextAndValueAndCheck(
                             LocaleController.getString(R.string.RoundVideoStabilization),
                             LocaleController.getString(R.string.RoundVideoStabilizationInfo),
                             SharedSettings.roundVideoStabilization.get(),
                             false,
-                            false
+                            true
                     );
                 } else {
                     cell.setTextAndCheck(
@@ -368,6 +381,7 @@ public class RoundVideoSettingsActivity extends BaseFragment {
                 return TYPE_HEADER;
             }
             if (position == ROW_ENABLED
+                    || position == ROW_LOW_LIGHT
                     || position == ROW_STABILIZATION
                     || position == ROW_COMPOSITION) {
                 return TYPE_CHECK;
