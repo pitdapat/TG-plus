@@ -188,6 +188,7 @@ import org.telegram.messenger.SvgHelper;
 import org.telegram.messenger.Timer;
 import org.telegram.messenger.TranslateController;
 import org.telegram.messenger.tgplus.TgPlusInlineTranslations;
+import org.telegram.messenger.tgplus.TgPlusVoiceTranscriber;
 import org.telegram.messenger.tgplus.TgPlusUiSpeed;
 import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.UserObject;
@@ -34315,6 +34316,11 @@ public class ChatActivity extends BaseFragment implements
                 getMediaDataController().addRecentSticker(MediaDataController.TYPE_FAVE, selectedObject, selectedObject.getDocument(), (int) (System.currentTimeMillis() / 1000), true);
                 break;
             }
+            case OPTION_TRANSCRIBE: {
+                // Telegram Plus: run the on-device transcription again and replace the old text
+                TranscribeButton.retranscribeOnDevice(selectedObject);
+                break;
+            }
             case OPTION_COPY_LINK: {
                 TLRPC.TL_channels_exportMessageLink req = new TLRPC.TL_channels_exportMessageLink();
                 if (selectedObject == replyingMessageObject && isComments) {
@@ -46297,6 +46303,11 @@ public class ChatActivity extends BaseFragment implements
                     options.add(OPTION_TRANSLATE);
                     icons.add(R.drawable.msg_translate);
                 }
+                if (TgPlusVoiceTranscriber.canRetranscribe(selectedObject)) {
+                    items.add(LocaleController.getString(R.string.TgPlusTranscribeAgain));
+                    options.add(OPTION_TRANSCRIBE);
+                    icons.add(R.drawable.msg_retry);
+                }
                 if (message.canEditMessage(currentChat) && message.type != MessageObject.TYPE_POLL || chatMode == MODE_WELCOME_MESSAGES) {
                     items.add(LocaleController.getString(R.string.Edit));
                     options.add(OPTION_EDIT);
@@ -46643,6 +46654,11 @@ public class ChatActivity extends BaseFragment implements
                     items.add(LocaleController.getString(R.string.TranslateMessage));
                     options.add(OPTION_TRANSLATE);
                     icons.add(R.drawable.msg_translate);
+                }
+                if (TgPlusVoiceTranscriber.canRetranscribe(selectedObject)) {
+                    items.add(LocaleController.getString(R.string.TgPlusTranscribeAgain));
+                    options.add(OPTION_TRANSCRIBE);
+                    icons.add(R.drawable.msg_retry);
                 }
                 if (allowEdit || chatMode == MODE_WELCOME_MESSAGES) {
                     items.add(LocaleController.getString(R.string.Edit));

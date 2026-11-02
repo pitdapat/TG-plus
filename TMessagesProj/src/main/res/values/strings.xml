@@ -11692,6 +11692,7 @@
     <string name="TgPlusDictationSlideToCancel">Slide left to cancel</string>
     <string name="TgPlusDictationTranscribing">Transcribing…</string>
     <string name="TgPlusDictationHold">Hold the button and speak</string>
+    <string name="TgPlusTranscribeAgain">Transcribe again</string>
     <string name="TgPlusDictationNothing">Nothing was recognized</string>
     <string name="TgPlusDictationQuiet">The microphone heard almost nothing. Check that it is not muted or covered.</string>
     <string name="TgPlusDictationDescription">Dictate</string>

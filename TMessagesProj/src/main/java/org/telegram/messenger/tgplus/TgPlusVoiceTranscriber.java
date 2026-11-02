@@ -45,6 +45,12 @@ public final class TgPlusVoiceTranscriber {
         return TranscriptionRouting.useOnDevice(TgPlusSettings.getTranscriptionRoute(), premium);
     }
 
+    /** True if the user can ask for this message to be transcribed again (it has a transcript and the phone does the work). */
+    public static boolean canRetranscribe(MessageObject message) {
+        return useOnDevice(message) && message.isSent() && message.messageOwner.voiceTranscriptionFinal
+            && message.messageOwner.voiceTranscription != null && !message.messageOwner.voiceTranscription.isEmpty();
+    }
+
     public static void transcribe(MessageObject message, Callback callback) {
         final long start = SystemClock.elapsedRealtime();
         AsrEngine.Status status = ParakeetEngine.getInstance().getStatus();
