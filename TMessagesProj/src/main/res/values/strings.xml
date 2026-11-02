@@ -11682,8 +11682,11 @@
     <string name="TgPlusSpeechErrorCorrupt">The downloaded files were damaged, so they were discarded. Download again.</string>
     <string name="TgPlusSpeechErrorLowMemory">Not enough free memory to load the speech model. Close other apps and try again.</string>
     <string name="TgPlusSpeechErrorNativeLoad">The speech engine could not start on this phone.</string>
-    <string name="TgPlusSpeechErrorMissing">The speech model is not downloaded.</string>
+    <string name="TgPlusSpeechErrorMissing">The speech model is not downloaded. Get it in Settings, Telegram Plus, Speech model.</string>
     <string name="TgPlusSpeechErrorStorage">The model could not be written to storage.</string>
+    <string name="TgPlusSpeechErrorAudioFormat">This audio can\'t be transcribed on this phone.</string>
+    <string name="TgPlusSpeechErrorAudioTooLong">This voice message is too long to transcribe on this phone.</string>
+    <string name="TgPlusSpeechErrorAudioDownload">The voice message could not be downloaded.</string>
     <string name="TgPlusSpeakNow">Speak now (%1$d seconds)</string>
     <string name="TgPlusDictationHeard">Dictation test heard</string>
     <string name="TgPlusVoiceTranscription">Voice transcription</string>

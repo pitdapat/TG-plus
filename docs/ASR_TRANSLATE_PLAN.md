@@ -111,6 +111,9 @@ On an arm64 device: load the model with sherpa-onnx, transcribe a fixed voice no
 - Voice notes: decode the Opus file with the in-tree Opus code, resample to 16 kHz. The file must be downloaded first; if not, download it, then transcribe.
 - Dictation: separate `AudioRecord` at 16 kHz mono (Section 5.5). Do not reuse `MediaController`'s recorder, which is tied to sending voice messages.
 
+### 5.3.1 Voice-note decoding (implemented)
+`MediaController.decodeOpusTo16k` (JNI in `jni/audio.c`, uses the opusfile library already in the app) decodes an Ogg Opus voice note to 16 kHz mono. `AudioChunker` cuts anything over 30 s at the quietest point in the last 5 s of each piece; the pieces are recognized in order and joined. Limit: 20 minutes. Only voice messages are handled on-device; round videos keep the stock route.
+
 ### 5.4 Feature 1: Transcription routing
 Setting **"Voice transcription"** (3 options):
 | Option | Premium user | Non-Premium user |

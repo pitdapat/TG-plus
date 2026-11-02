@@ -218,7 +218,7 @@ public final class TgPlusDiagnostics {
         ArrayList<String> lines = new ArrayList<>();
         int route = TgPlusSettings.getTranscriptionRoute();
         lines.add("Voice transcription: " + (route == TgPlusSettings.TRANSCRIPTION_ON_DEVICE ? "always on-device"
-            : route == TgPlusSettings.TRANSCRIPTION_TELEGRAM ? "Telegram only" : "automatic") + " (transcription buttons are not built yet; only the model can be tested)");
+            : route == TgPlusSettings.TRANSCRIPTION_TELEGRAM ? "Telegram only" : "automatic") + " (voice messages: on-device transcription is wired in)");
         lines.add("Dictation button: " + (TgPlusSettings.isDictationEnabled() ? "on" : "off") + " (not built yet; only the model can be tested)");
         lines.add("Translation provider: " + (TgPlusSettings.getTranslationProvider() == TgPlusSettings.TRANSLATION_GEMINI ? "Gemini" : "Telegram"));
         lines.add("Gemini model: " + TgPlusSettings.getGeminiModel());

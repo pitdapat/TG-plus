@@ -34,6 +34,13 @@ public final class TgPlusSpeechErrors {
                 return getString(R.string.TgPlusSpeechErrorNativeLoad);
             case "MODEL_MISSING":
                 return getString(R.string.TgPlusSpeechErrorMissing);
+            case "AUDIO_UNSUPPORTED":
+            case "AUDIO_DECODE":
+                return getString(R.string.TgPlusSpeechErrorAudioFormat);
+            case "AUDIO_TOO_LONG":
+                return getString(R.string.TgPlusSpeechErrorAudioTooLong);
+            case "AUDIO_DOWNLOAD":
+                return getString(R.string.TgPlusSpeechErrorAudioDownload);
             case "STORAGE":
                 return getString(R.string.TgPlusSpeechErrorStorage);
             default:
