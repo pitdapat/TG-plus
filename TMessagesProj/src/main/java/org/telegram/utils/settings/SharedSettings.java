@@ -1,6 +1,7 @@
 package org.telegram.utils.settings;
 
 import org.telegram.messenger.BuildConfig;
+import org.telegram.ui.ActionBar.SimpleActionBarDoneButton;
 import org.telegram.utils.recorder.round.RoundVideoSession;
 import org.telegram.utils.recorder.audio.AudioRecordingSession;
 
@@ -59,6 +60,12 @@ public final class SharedSettings {
         roundVideoLowLightBoost.reset();
         roundVideoComposition.reset();
     }
+
+    public static final EnumSetting<SimpleActionBarDoneButton.Style> headerDoneButtonStyle =
+        EnumSetting.of("header_done_button_style", SimpleActionBarDoneButton.Style.GLASS);
+
+    public static final EnumSetting<SimpleActionBarDoneButton.Shape> headerDoneButtonShape =
+        EnumSetting.of("header_done_button_shape", SimpleActionBarDoneButton.Shape.TEXT);
 
     private SharedSettings() {
     }
