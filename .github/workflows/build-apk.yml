@@ -1,14 +1,24 @@
 name: Build Telegram Plus APK
 
-# One workflow for every branch. It builds the signed side-by-side app
-# (org.patrick.tgplus.web) and publishes it as a rolling GitHub Release per branch.
+# The only build workflow. It builds the standalone ARM64 app (org.patrick.tgplus.web)
+# in one of two modes:
 #
-# MANUAL ONLY: pushing does not start a build, so work can be iterated freely.
-# Start a build from the Actions tab ("Run workflow") or with:
-#   gh workflow run build-apk.yml --ref master -f ref=<branch, tag or SHA>
-# The `ref` input is the code that gets built. The workflow file itself is taken from
-# the branch chosen in "Use workflow from" (use master), so the target branch does not
-# need its own copy.
+#   publish = false (default)  Test build. Uploads the APK and build-result.json as a
+#                              workflow artifact only. No release, no tag, read-only token.
+#                              Release-only checks (API config, Firebase, certificate,
+#                              package) are reported as warnings. Signs with the permanent
+#                              key when available, otherwise with a throwaway key.
+#   publish = true             Release build. Every check must pass, the permanent key is
+#                              required, and the APK replaces the branch's rolling
+#                              `build-<branch>` GitHub Release (read by the in-app updater).
+#
+# Unit tests and compilation fail the run in both modes.
+#
+# MANUAL ONLY: pushing does not start a build. Always start it from master:
+#   gh workflow run build-apk.yml --ref master -f ref=<branch, tag or SHA>                  # test
+#   gh workflow run build-apk.yml --ref master -f ref=<branch> -f publish=true              # release
+# The `ref` input is the code that gets built. The workflow file is taken from the branch
+# chosen in "Use workflow from" (master), so the target branch does not need its own copy.
 on:
   workflow_dispatch:
     inputs:
@@ -16,17 +26,28 @@ on:
         description: Branch, tag or SHA to build (blank = the branch this run was started on)
         required: false
         default: ''
+      publish:
+        description: Publish to the branch's rolling GitHub Release (strict checks, permanent key)
+        type: boolean
+        default: false
+      signing:
+        description: Test builds only. auto = permanent key if the secret works, else throwaway
+        type: choice
+        options: [auto, throwaway]
+        default: auto
 
 permissions:
   contents: read
 
 concurrency:
-  # One build per branch; a newer run for the same branch replaces the older one.
-  group: telegram-plus-apk-${{ inputs.ref || github.ref_name }}
+  # Test and release builds use separate groups, so a test build never cancels a release.
+  # Within a group, a newer run for the same ref replaces the older one.
+  group: telegram-plus-${{ inputs.publish && 'release' || 'test' }}-${{ inputs.ref || github.ref_name }}
   cancel-in-progress: true
 
 env:
   BRANCH: ${{ inputs.ref || github.ref_name }}
+  PUBLISH: ${{ inputs.publish }}
 
 jobs:
   build:
@@ -72,25 +93,76 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # Cheap checks run first so a bad commit or missing secret fails in seconds,
-      # before the SDK download and the native build.
+      # Cheap checks run first so a bad commit fails in seconds, before the native build.
       - name: Run unit tests
         shell: bash
         run: |
-          # -sourcepath compiles only the app classes each test imports, and every
-          # tests/telegram-plus/*Test.java is run, so no per-branch test list is needed.
-          out="$RUNNER_TEMP/tgplus-tests"
-          mkdir -p "$out"
-          javac -d "$out" -sourcepath TMessagesProj/src/main/java tests/telegram-plus/*Test.java
-          for src in tests/telegram-plus/*Test.java; do
-            java -cp "$out" "$(basename "$src" .java)"
-          done
-          python3 tools/test_push_diagnostics.py
+          shopt -s nullglob
+          tests=(tests/telegram-plus/*Test.java)
+          if [ ${#tests[@]} -eq 0 ]; then
+            echo "::warning::No tests/telegram-plus/*Test.java on this ref; skipping unit tests."
+          else
+            # -sourcepath compiles only the app classes each test imports, and every
+            # tests/telegram-plus/*Test.java is run, so no per-branch test list is needed.
+            out="$RUNNER_TEMP/tgplus-tests"
+            mkdir -p "$out"
+            javac -d "$out" -sourcepath TMessagesProj/src/main/java "${tests[@]}"
+            for src in "${tests[@]}"; do
+              java -cp "$out" "$(basename "$src" .java)"
+            done
+          fi
+          if [ -f tools/test_push_diagnostics.py ]; then
+            python3 tools/test_push_diagnostics.py
+          elif [ "$PUBLISH" = true ]; then
+            echo "::error::tools/test_push_diagnostics.py is missing on this ref. Merge master into it first."
+            exit 1
+          fi
 
-      - name: Restore and verify signing key privately
+      - name: Prepare signing key
+        id: signing
+        shell: bash
         env:
           SIGNING_BUNDLE: ${{ secrets.TELEGRAM_PLUS_SIGNING_BUNDLE_BASE64 }}
-        run: python3 tools/prepare_signing.py
+          SIGNING_MODE: ${{ inputs.signing }}
+        run: |
+          set -euo pipefail
+          if [ "$PUBLISH" = true ]; then
+            # Release builds must use the permanent key; no fallback.
+            if [ ! -f tools/prepare_signing.py ]; then
+              echo "::error::tools/prepare_signing.py is missing on this ref. Merge master into it first."
+              exit 1
+            fi
+            python3 tools/prepare_signing.py
+            echo "mode=permanent" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          mode=throwaway
+          if [ "$SIGNING_MODE" = auto ] && [ -n "$SIGNING_BUNDLE" ] && [ -f tools/prepare_signing.py ]; then
+            if python3 tools/prepare_signing.py; then
+              mode=permanent
+            else
+              echo "::warning::Permanent signing key could not be prepared; using a throwaway key."
+            fi
+          fi
+          if [ "$mode" = throwaway ]; then
+            folder="$RUNNER_TEMP/tgplus-signing"
+            mkdir -p -m 700 "$folder"
+            password=$(python3 -c 'import secrets; print(secrets.token_hex(24))')
+            echo "::add-mask::$password"
+            rm -f "$folder/throwaway.p12"
+            keytool -genkeypair -keystore "$folder/throwaway.p12" -storetype PKCS12 \
+              -alias telegram-plus -keyalg RSA -keysize 2048 -validity 3650 \
+              -dname "CN=Telegram Plus test build (throwaway)" \
+              -storepass "$password" -keypass "$password" >/dev/null
+            {
+              echo "TELEGRAM_PLUS_KEYSTORE=$folder/throwaway.p12"
+              echo "TELEGRAM_PLUS_KEY_ALIAS=telegram-plus"
+              echo "TELEGRAM_PLUS_STORE_PASSWORD=$password"
+              echo "TELEGRAM_PLUS_KEY_PASSWORD=$password"
+            } >> "$GITHUB_ENV"
+          fi
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "Signing: $mode"
 
       - name: Compute build name
         id: meta
@@ -99,12 +171,19 @@ jobs:
           safe_branch=$(printf '%s' "$BRANCH" | tr -c 'A-Za-z0-9._-' '-')
           sha=$(git rev-parse HEAD)
           version=$(sed -n 's/^APP_VERSION_NAME=//p' gradle.properties | tr -c 'A-Za-z0-9._-' '-' | sed 's/-*$//')
-          # Unique per build, so phones save each download under its own name.
-          # The in-app updater parses this exact pattern.
+          if [ "$PUBLISH" = true ]; then
+            # Unique per build, so phones save each download under its own name.
+            # The in-app updater parses this exact pattern.
+            apk_name="TelegramPlus-${version}-${safe_branch}-build${GITHUB_RUN_NUMBER}-${sha::7}"
+          else
+            # "test" keeps test builds distinct from the release pattern above.
+            apk_name="TelegramPlus-test-${version}-${safe_branch}-run${GITHUB_RUN_NUMBER}-${sha::7}"
+          fi
           {
             echo "sha=$sha"
+            echo "version=$version"
             echo "safe_branch=$safe_branch"
-            echo "apk_name=TelegramPlus-${version}-${safe_branch}-build${GITHUB_RUN_NUMBER}-${sha::7}"
+            echo "apk_name=$apk_name"
           } >> "$GITHUB_OUTPUT"
 
       - name: Set up Gradle 8.13
@@ -151,53 +230,136 @@ jobs:
           -PRELEASE_KEY_PASSWORD=unused
           -PRELEASE_KEY_ALIAS=unused
 
-      - name: Verify API configuration, Firebase, signature and package
+      - name: Collect APK
         shell: bash
+        env:
+          APK_NAME: ${{ steps.meta.outputs.apk_name }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          apks=(TMessagesProj_AppStandalone/build/outputs/apk/afat/debug/*.apk)
+          if [ ${#apks[@]} -ne 1 ]; then
+            echo "::error::Expected exactly one standalone APK, found ${#apks[@]}."
+            exit 1
+          fi
+          mkdir -p apk-artifact
+          cp "${apks[0]}" "apk-artifact/${APK_NAME}.apk"
+
+      # Release builds: any failed check fails the run. Test builds: warnings only.
+      - name: Verify API configuration, Firebase, signature and package
+        id: checks
+        continue-on-error: ${{ !inputs.publish }}
+        shell: bash
+        env:
+          APK: apk-artifact/${{ steps.meta.outputs.apk_name }}.apk
+          SIGNING_MODE: ${{ steps.signing.outputs.mode }}
         run: |
           python3 - <<'PY'
-          import glob, os, re
+          import glob, json, os, re, subprocess
           from pathlib import Path
-          files = glob.glob('TMessagesProj/build/generated/source/buildConfig/debug/**/BuildConfig.java', recursive=True)
-          if len(files) != 1:
-              raise SystemExit('Expected one generated Telegram BuildConfig.')
-          source = Path(files[0]).read_text()
-          api_id = re.search(r'TELEGRAM_PLUS_API_ID\s*=\s*(\d+)\s*;', source)
-          api_hash = re.search(r'TELEGRAM_PLUS_API_HASH\s*=\s*"([a-fA-F0-9]{32})"\s*;', source)
-          if not api_id or int(api_id.group(1)) < 1 or not api_hash:
-              raise SystemExit('Generated Telegram API configuration is empty or invalid.')
-          summary = Path(os.environ['GITHUB_STEP_SUMMARY'])
-          if not os.environ.get('TELEGRAM_PLUS_API_ID') and not os.environ.get('TELEGRAM_PLUS_API_HASH'):
-              if api_id.group(1) != '4' or api_hash.group(1) != '014b35b6184100b085b0d0572f9b5103':
-                  raise SystemExit('Upstream public test defaults were not compiled correctly.')
-              note = 'Personal test APK: upstream sample API credentials included.'
-              print('::notice::' + note)
-          else:
-              note = 'Telegram API credentials supplied from repository secrets.'
-          with summary.open('a') as out:
-              out.write('### ' + note + '\n')
-          print('Compiled Telegram API configuration verified; values are not logged.')
-          PY
-          python3 tools/verify_firebase_apk.py
-          python3 - <<'PY'
-          import glob, os, subprocess
-          from pathlib import Path
-          files = glob.glob('TMessagesProj_AppStandalone/build/outputs/apk/afat/debug/*.apk')
-          if len(files) != 1:
-              raise SystemExit('Expected exactly one standalone APK.')
+          strict = os.environ['PUBLISH'] == 'true'
+          apk = os.environ['APK']
           tools = Path(os.environ['ANDROID_HOME']) / 'build-tools/36.0.0'
-          verified = subprocess.run([str(tools/'apksigner'), 'verify', '--print-certs', files[0]], capture_output=True, text=True)
-          if verified.returncode:
-              raise SystemExit('APK signature verification failed.')
-          expected = 'a11bf05dd7c3d8ca457a5fa1204eea3fd0870d2c47853ffc200d3db7a0afad93'
-          if expected not in verified.stdout.lower():
-              raise SystemExit('APK signing certificate does not match the permanent key.')
-          package = subprocess.run([str(tools/'aapt2'), 'dump', 'badging', files[0]], capture_output=True, text=True, check=True)
-          if "package: name='org.patrick.tgplus.web'" not in package.stdout:
-              raise SystemExit('APK package is not the intended side-by-side application.')
-          target = Path('apk-artifact')
-          target.mkdir(exist_ok=True)
-          (target/'Telegram_Plus.apk').write_bytes(Path(files[0]).read_bytes())
-          print('APK signature and side-by-side package verified.')
+          results = {}
+
+          def check(name, fn):
+              try:
+                  results[name] = fn() or 'pass'
+              except Exception as error:
+                  results[name] = 'fail: ' + (str(error) or type(error).__name__)
+                  level = 'error' if strict else 'warning'
+                  print(f'::{level} title={name}::{results[name]}')
+
+          def api_config():
+              files = glob.glob('TMessagesProj/build/generated/source/buildConfig/debug/**/BuildConfig.java', recursive=True)
+              if len(files) != 1:
+                  raise RuntimeError('expected one generated Telegram BuildConfig')
+              source = Path(files[0]).read_text()
+              api_id = re.search(r'TELEGRAM_PLUS_API_ID\s*=\s*(\d+)\s*;', source)
+              api_hash = re.search(r'TELEGRAM_PLUS_API_HASH\s*=\s*"([a-fA-F0-9]{32})"\s*;', source)
+              if not api_id or int(api_id.group(1)) < 1 or not api_hash:
+                  raise RuntimeError('generated Telegram API configuration is empty or invalid')
+              if not os.environ.get('TELEGRAM_PLUS_API_ID') and not os.environ.get('TELEGRAM_PLUS_API_HASH'):
+                  if api_id.group(1) != '4' or api_hash.group(1) != '014b35b6184100b085b0d0572f9b5103':
+                      raise RuntimeError('upstream public test defaults were not compiled correctly')
+                  return 'pass (upstream sample API credentials)'
+              return 'pass (credentials from repository secrets)'
+
+          def firebase():
+              if not Path('tools/verify_firebase_apk.py').exists():
+                  raise RuntimeError('tools/verify_firebase_apk.py is missing on this ref; merge master into it')
+              run = subprocess.run(['python3', 'tools/verify_firebase_apk.py'], capture_output=True, text=True)
+              if run.returncode:
+                  lines = (run.stderr or run.stdout).strip().splitlines()
+                  raise RuntimeError(lines[-1] if lines else 'verify_firebase_apk.py failed')
+
+          def signature():
+              run = subprocess.run([str(tools / 'apksigner'), 'verify', '--print-certs', apk], capture_output=True, text=True)
+              if run.returncode:
+                  raise RuntimeError('apksigner verification failed')
+              permanent = 'a11bf05dd7c3d8ca457a5fa1204eea3fd0870d2c47853ffc200d3db7a0afad93' in run.stdout.lower()
+              if os.environ['SIGNING_MODE'] == 'permanent' and not permanent:
+                  raise RuntimeError('APK signing certificate does not match the permanent key')
+              return 'pass (permanent key)' if permanent else 'pass (throwaway key: uninstall the installed app first)'
+
+          def package():
+              out = subprocess.run([str(tools / 'aapt2'), 'dump', 'badging', apk], capture_output=True, text=True, check=True).stdout
+              if "package: name='org.patrick.tgplus.web'" not in out:
+                  raise RuntimeError('APK package is not org.patrick.tgplus.web')
+
+          check('api_config', api_config)
+          check('firebase', firebase)
+          check('signature', signature)
+          check('package', package)
+          Path(os.environ['RUNNER_TEMP'], 'checks.json').write_text(json.dumps(results))
+          failed = [name for name, value in results.items() if value.startswith('fail')]
+          if failed:
+              raise SystemExit('Failed checks: ' + ', '.join(failed))
+          print('All checks passed.')
+          PY
+
+      - name: Write build result
+        if: always() && steps.meta.outcome == 'success'
+        shell: bash
+        env:
+          APK_NAME: ${{ steps.meta.outputs.apk_name }}
+          SHA: ${{ steps.meta.outputs.sha }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          SIGNING_MODE: ${{ steps.signing.outputs.mode }}
+          JOB_STATUS: ${{ job.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          mkdir -p apk-artifact
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          apk = Path('apk-artifact') / (os.environ['APK_NAME'] + '.apk')
+          checks_file = Path(os.environ['RUNNER_TEMP'], 'checks.json')
+          result = {
+              'status': 'success' if apk.exists() and os.environ['JOB_STATUS'] == 'success' else 'failure',
+              'mode': 'release' if os.environ['PUBLISH'] == 'true' else 'test',
+              'ref': os.environ['BRANCH'],
+              'sha': os.environ['SHA'],
+              'version': os.environ['VERSION'],
+              'signing': os.environ['SIGNING_MODE'] or 'unknown',
+              'apk': apk.name if apk.exists() else None,
+              'apk_sha256': hashlib.sha256(apk.read_bytes()).hexdigest() if apk.exists() else None,
+              'checks': json.loads(checks_file.read_text()) if checks_file.exists() else {},
+              'run_url': os.environ['RUN_URL'],
+              'artifact': os.environ['APK_NAME'],
+          }
+          Path('apk-artifact/build-result.json').write_text(json.dumps(result, indent=2) + '\n')
+          lines = [f"### {result['mode'].title()} build: {result['status']}", '',
+                   f"- ref `{result['ref']}` at `{result['sha'][:7]}` (version {result['version']})",
+                   f"- signing: {result['signing']}",
+                   f"- artifact: `{result['artifact']}`"]
+          lines += [f'- check `{k}`: {v}' for k, v in result['checks'].items()]
+          lines += ['', f"Download: `gh run download {os.environ['GITHUB_RUN_ID']} -n {result['artifact']}`"]
+          if result['mode'] == 'test':
+              lines += ['', 'Test build: not published as a release.']
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write('\n'.join(lines) + '\n')
+          print(json.dumps(result, indent=2))
           PY
 
       - name: Report native cache reuse
@@ -213,24 +375,26 @@ jobs:
         shell: bash
         run: rm -rf "$RUNNER_TEMP/tgplus-signing"
 
-      - name: Upload signed APK
+      - name: Upload APK and build result
+        if: always() && steps.meta.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ${{ steps.meta.outputs.apk_name }}
-          path: apk-artifact/Telegram_Plus.apk
-          if-no-files-found: error
+          path: apk-artifact/
+          if-no-files-found: warn
           compression-level: 0
           retention-days: 14
 
-  # Separate job so only this small step gets write access to the repository.
+  # Release builds only. Separate job so only this small step gets write access.
   publish:
+    if: inputs.publish
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: write
     concurrency:
-      group: telegram-plus-release-${{ inputs.ref || github.ref_name }}
+      group: telegram-plus-release-publish-${{ inputs.ref || github.ref_name }}
       cancel-in-progress: false
     steps:
       - name: Download verified APK
@@ -252,7 +416,8 @@ jobs:
         run: |
           set -euo pipefail
           tag="build-${SAFE_BRANCH}"
-          cp apk/Telegram_Plus.apk "$APK_NAME"
+          test -f "apk/${APK_NAME}" || { echo "::error::Verified APK ${APK_NAME} not found in artifact."; exit 1; }
+          cp "apk/${APK_NAME}" "$APK_NAME"
           notes="Latest signed build of branch \`${BRANCH}\` (commit ${SHA::7}, run #${GITHUB_RUN_NUMBER}).
 
           Package org.patrick.tgplus.web, signed with the permanent Telegram Plus key. Installs as an update.
