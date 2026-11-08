@@ -7,7 +7,9 @@ import android.view.TextureView;
 import android.view.View;
 import android.widget.FrameLayout;
 
+import org.telegram.messenger.AppGlobalConfig;
 import org.telegram.messenger.ImageReceiver;
+import org.telegram.messenger.UserConfig;
 import org.telegram.utils.settings.SharedSettings;
 import org.telegram.ui.ActionBar.Theme;
 import org.telegram.ui.Components.blur3.BlurredBackgroundDrawableViewFactory;
