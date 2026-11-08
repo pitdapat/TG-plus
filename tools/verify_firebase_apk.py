@@ -19,8 +19,19 @@ expected = {
     'gcm_defaultSenderId': config['project_info']['project_number'],
     'google_app_id': clients[0]['client_info']['mobilesdk_app_id'],
 }
-generated = list(module.glob('build/generated/res/google-services/**/values.xml'))
-assert len(generated) == 1, 'Expected one generated Firebase resource file'
+# google-services 4.3.x wrote build/generated/res/google-services/afat/debug/values/values.xml.
+# 4.4+ registers through the AGP variant API, so the folder is named after the task:
+# build/generated/res/processAfatDebugGoogleServices/values/values.xml.
+# Match either layout: a values.xml under generated/res that holds google_app_id for afatDebug.
+generated = [
+    p for p in module.glob('build/generated/res/**/values.xml')
+    if 'afatdebug' in p.relative_to(module).as_posix().replace('/', '').lower()
+    and 'name="google_app_id"' in p.read_text(errors='replace')
+]
+assert len(generated) == 1, (
+    f'Expected one generated Firebase resource file, found {len(generated)}: '
+    + ', '.join(p.as_posix() for p in generated)
+)
 values = {n.attrib['name']: n.text for n in ET.parse(generated[0]).getroot()}
 assert all(values.get(k) == v for k, v in expected.items()), 'Wrong generated Firebase project'
 apks = glob.glob(str(module / 'build/outputs/apk/afat/debug/*.apk'))
