@@ -29,6 +29,31 @@ branch being built does not need its own copy.
   `tools/prepare_signing.py`, `tools/verify_firebase_apk.py` and
   `tools/test_push_diagnostics.py` fails with a clear error. Merge `master` into it first.
 
+## Agent builds: build without touching releases
+
+If you have no local Android toolchain, or you only need an APK to test, use
+`.github/workflows/agent-build.yml` instead of `build-apk.yml`. It builds the same
+standalone ARM64 APK but never creates releases or tags, never cancels a release build,
+and only uploads a workflow artifact (kept 7 days).
+
+```sh
+gh workflow run agent-build.yml --ref master -f ref=<branch, tag or SHA>
+gh run list --workflow agent-build.yml --limit 1          # get the run id
+gh run watch <run id> --exit-status
+gh run download <run id>                                  # APK + build-result.json
+```
+
+- Same rule as above: start it from `master`, put the code to build in `ref`.
+- Unit tests and compilation fail the run. Release-only checks (API config, Firebase,
+  signing certificate, package name) only add warnings; read them in the run summary or
+  in `build-result.json` under `checks`.
+- Signing uses the permanent key when the secret works and falls back to a throwaway key
+  otherwise (`signing` in `build-result.json`). A throwaway-signed APK cannot update the
+  installed app; uninstall it first.
+- Do not edit `build-apk.yml` (for example `if: false` on the publish job) to get a
+  build without a release. Use this workflow.
+- Publishing a release is still done only with `build-apk.yml`, and only when the user asks.
+
 ## Check locally before asking for a build
 
 These are the same checks the workflow runs first and need only a JDK and Python:
