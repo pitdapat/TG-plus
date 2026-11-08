@@ -50,6 +50,9 @@ final class RoundVideoCameraController {
 
         void onRecordingStopped();
 
+        /** The active segment cannot continue, but the samples written so far stay valid. */
+        void onSegmentInterrupted(@NonNull Exception error);
+
         void onError(@NonNull Exception error);
     }
 
@@ -215,6 +218,7 @@ final class RoundVideoCameraController {
     private boolean frameRateFallbackAttempted;
     private boolean frameRatePolicyResolved;
     private boolean force30Fps;
+    private int encoderFrameRate;
     private CameraSelection frontSelection;
     private CameraSelection backSelection;
     private boolean warmSwitchSupported;
@@ -326,6 +330,7 @@ final class RoundVideoCameraController {
         requestedFacing = facing;
         active = true;
         stopping = false;
+        frameRateFallbackAttempted = false;
         commonStartRecorder = null;
         previewTransformEnabled = true;
         segmentStartedNs = SystemClock.elapsedRealtimeNanos();
@@ -596,14 +601,17 @@ final class RoundVideoCameraController {
 
     private void createRecordingPipeline() throws IOException {
         glPreviewEnabled = dualActiveMode;
+        // Later segments keep the first segment's encoder configuration: a different frame rate
+        // can change the SPS, which cannot be appended to the same MP4 track.
         recorder = new RoundVideoCodecRecorder(
                 writer,
                 timelineOffsetUs,
                 outputSize,
                 videoBitrate,
-                activeFrameRate.getValue(),
+                encoderFrameRate > 0 ? encoderFrameRate : activeFrameRate.getValue(),
                 diagnostics,
-                callback::onError
+                callback::onError,
+                callback::onSegmentInterrupted
         );
         Surface encoderSurface = recorder.prepare();
         glProcessor = new RoundVideoGlProcessor(
@@ -901,7 +909,7 @@ final class RoundVideoCameraController {
             }
             device.close();
             if (unexpected) {
-                reportError(new IllegalStateException("Camera device disconnected"));
+                reportCameraLoss(new IllegalStateException("Camera device disconnected"));
             }
         }
 
@@ -936,7 +944,7 @@ final class RoundVideoCameraController {
                 cameraDevice = null;
             }
             device.close();
-            reportError(new IllegalStateException("Camera device error: "
+            reportCameraLoss(new IllegalStateException("Camera device error: "
                     + cameraErrorName(error) + " (" + error + ")"));
         }
 
@@ -1662,6 +1670,7 @@ final class RoundVideoCameraController {
     ) {
         if (!active || stopping || recorder != expectedRecorder) return;
         cancelCommonStartWait();
+        if (encoderFrameRate == 0) encoderFrameRate = expectedRecorder.getVideoFrameRate();
         diagnostics.log("common A/V start completed: segmentElapsedMs="
                 + elapsedMs(segmentStartedNs));
         callback.onRecordingStarted();
@@ -2568,6 +2577,7 @@ final class RoundVideoCameraController {
             return;
         }
         frameRateFallbackAttempted = true;
+        force30Fps = true;
         closeCaptureSession();
         OutputPair pair = regularFallbackPair;
         if (pair == null) {
@@ -2624,6 +2634,14 @@ final class RoundVideoCameraController {
         if (active && handler != null) handler.post(this::createCaptureSession);
     }
 
+    /**
+     * Picks the AE target range for the requested frame rate. A range topping out at the target
+     * with the lowest lower bound is preferred, so auto exposure lengthens the exposure in low
+     * light instead of underexposing at a locked rate. Weak front sensors often advertise only
+     * [10,30]-like ranges besides a locked [30,30], so at 30 fps any lower bound is accepted;
+     * at higher rates the range may drop only to half of the target. The narrowest range
+     * containing the target is only the fallback.
+     */
     @Nullable
     static Range<Integer> findBestFpsRange(
             @Nullable Range<Integer>[] ranges,
@@ -2788,6 +2806,19 @@ final class RoundVideoCameraController {
     private void reportError(@NonNull Exception error) {
         diagnostics.error("camera error", error);
         callback.onError(error);
+    }
+
+    /**
+     * Losing the camera after recording started, for example on eviction when the host goes to
+     * the background, ends only the active segment so the recorded part can still be previewed.
+     */
+    private void reportCameraLoss(@NonNull Exception error) {
+        if (recorder == null || !recorder.isStarted()) {
+            reportError(error);
+            return;
+        }
+        diagnostics.error("camera lost while recording", error);
+        callback.onSegmentInterrupted(error);
     }
 
     private void logCameraConfigurationOnce(
