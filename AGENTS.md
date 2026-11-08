@@ -1,58 +1,82 @@
 # Agent instructions
 
-## GitHub builds are manual
+## Building the app: one workflow, two modes
 
-Pushing does **not** start a build. `.github/workflows/build-apk.yml` runs only on
-`workflow_dispatch`, so commits and pushes while a feature is in progress cost nothing.
-We iterate until the features are done and then run the full build once.
+`.github/workflows/build-apk.yml` is the only build workflow. It runs only on
+`workflow_dispatch` (pushing never starts a build) and builds the standalone ARM64 app
+`org.patrick.tgplus.web` on GitHub, so no local Android toolchain is needed.
 
-- Do not start a build unless the user asks for one.
-- Do not add a `push`, `pull_request` or `schedule` trigger to the workflow.
-- To build when asked:
-  - Actions tab > Build Telegram Plus APK > Run workflow, or
-  - `gh workflow run build-apk.yml --ref master -f ref=<branch, tag or SHA>`
-- A build takes about 3 to 7 minutes, depending on cache hits, and publishes a rolling
-  prerelease tagged `build-<branch>` (the default branch gets the "latest" release).
+| | Test build (default) | Release build |
+|---|---|---|
+| Input | `publish=false` | `publish=true` |
+| Output | workflow artifact: APK + `build-result.json` (14 days) | the same artifact, plus it replaces the rolling `build-<branch>` GitHub Release |
+| Signing | permanent key if the secret works, else a throwaway key | permanent key required |
+| API config, Firebase, certificate, package checks | warnings only | must all pass |
+| Unit tests and compilation | must pass | must pass |
+| Who starts it | an agent may start it whenever it needs to verify its work | only when the user asks |
 
-### Always run the workflow from `master`
+Test and release builds run in separate concurrency groups, so a test build never
+cancels or blocks a release build. A build takes about 3 to 7 minutes with a warm cache.
 
-Always start the build with **"Use workflow from" = `master`** (`--ref master` in the
-command). Never use a feature branch's copy of `build-apk.yml`: copies on old branches
-are out of date and have different steps. `master` is the single source of truth, and the
-branch being built does not need its own copy.
+### How to run it
 
-- "Use workflow from" picks the workflow **file**. The `ref` input picks the **code that is built**.
-- Always fill in `ref` with the branch to build. If `ref` is blank, the build uses the
-  branch the run was started from, so a blank `ref` on `master` builds `master`.
-- Change the workflow only through `master`. Do not edit `build-apk.yml` on feature branches.
-- The build runs the built branch's own `tools/*.py` and `tests/`. A branch without
-  `tools/prepare_signing.py`, `tools/verify_firebase_apk.py` and
-  `tools/test_push_diagnostics.py` fails with a clear error. Merge `master` into it first.
-
-## Agent builds: build without touching releases
-
-If you have no local Android toolchain, or you only need an APK to test, use
-`.github/workflows/agent-build.yml` instead of `build-apk.yml`. It builds the same
-standalone ARM64 APK but never creates releases or tags, never cancels a release build,
-and only uploads a workflow artifact (kept 7 days).
+Always start it from `master` (`--ref master`) and put the code to build in `ref`:
 
 ```sh
-gh workflow run agent-build.yml --ref master -f ref=<branch, tag or SHA>
-gh run list --workflow agent-build.yml --limit 1          # get the run id
-gh run watch <run id> --exit-status
-gh run download <run id>                                  # APK + build-result.json
+# Test build (default). Never touches releases.
+gh workflow run build-apk.yml --ref master -f ref=<branch, tag or SHA>
+
+# Release build. Only when the user asks for one.
+gh workflow run build-apk.yml --ref master -f ref=<branch> -f publish=true
+
+# Follow it and fetch the result.
+gh run list --workflow build-apk.yml --limit 1        # newest run id
+gh run watch <run id> --exit-status                   # non-zero exit if the run failed
+gh run download <run id>                              # APK + build-result.json
+gh run view <run id> --log-failed                     # error output of failed steps
 ```
 
-- Same rule as above: start it from `master`, put the code to build in `ref`.
-- Unit tests and compilation fail the run. Release-only checks (API config, Firebase,
-  signing certificate, package name) only add warnings; read them in the run summary or
-  in `build-result.json` under `checks`.
-- Signing uses the permanent key when the secret works and falls back to a throwaway key
-  otherwise (`signing` in `build-result.json`). A throwaway-signed APK cannot update the
-  installed app; uninstall it first.
-- Do not edit `build-apk.yml` (for example `if: false` on the publish job) to get a
-  build without a release. Use this workflow.
-- Publishing a release is still done only with `build-apk.yml`, and only when the user asks.
+From the Actions tab: Build Telegram Plus APK > Run workflow, "Use workflow from" =
+`master`, fill in `ref`, tick `publish` only for a release.
+
+`build-result.json` holds `status`, `mode`, `ref`, `sha`, `version`, `signing`
+(`permanent` or `throwaway`), `apk`, `apk_sha256`, `checks` (one result per check) and
+`run_url`. It is uploaded even when the build fails, as long as the build got past
+naming the APK. A throwaway-signed APK cannot update the installed app; uninstall it
+first.
+
+### Rules
+
+- Do not add a `push`, `pull_request` or `schedule` trigger.
+- "Use workflow from" picks the workflow **file**; `ref` picks the **code that is built**.
+  Never run a feature branch's copy of `build-apk.yml`: copies on old branches are out of
+  date. A blank `ref` builds the branch the run was started from.
+- Change the workflow only through a PR into `master`. Do not edit it on a feature branch
+  to get a build through (for example `if: false` on the publish job, or weakening a
+  check). Use a test build instead.
+- The build runs the built ref's own `tools/*.py` and `tests/`. A release build of a ref
+  without `tools/prepare_signing.py`, `tools/verify_firebase_apk.py` and
+  `tools/test_push_diagnostics.py` fails with a clear error. Merge `master` into it first.
+
+### Always report errors back to the user
+
+If anything goes wrong with a build, stop and tell the user. Do not silently retry, work
+around it, or carry on as if it passed. This applies to a failed or cancelled run, to any
+`fail:` entry in `build-result.json` `checks` (even though test builds only warn), to a
+fallback to the throwaway key when the permanent key was expected, and to errors starting
+or watching the run.
+
+Report:
+
+1. the run URL and whether it was a test or release build;
+2. the ref and commit that was built;
+3. the step that failed and the actual error lines (from `gh run view <id> --log-failed`
+   or the `checks` entry), not a paraphrase;
+4. your diagnosis of the cause, if you have one, and what you propose to do about it.
+
+Then wait for the user before making workflow or signing changes or starting a release
+build. Fixing an ordinary code error in your own change and running another test build
+is fine, but still report the failure you hit.
 
 ## Check locally before asking for a build
 
