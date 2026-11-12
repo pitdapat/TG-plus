@@ -40,18 +40,19 @@ public class RoundVideoSettingsActivity extends BaseFragment {
     private static final int ROW_OUTPUT_RESOLUTION = 2;
     private static final int ROW_CAMERA_RESOLUTION = 3;
     private static final int ROW_FRAME_RATE = 4;
-    private static final int ROW_MOTION_PRIORITY = 5;
-    private static final int ROW_STABILIZATION = 6;
-    private static final int ROW_LOW_LIGHT = 7;
-    private static final int ROW_GENERAL_INFO = 8;
-    private static final int ROW_DIAGNOSTICS_HEADER = 9;
-    private static final int ROW_DIAGNOSTICS = 10;
-    private static final int ROW_RESET = 11;
-    private static final int ROW_DIAGNOSTICS_INFO = 12;
-    private static final int ROW_COMPOSITION_HEADER = 13;
-    private static final int ROW_COMPOSITION = 14;
-    private static final int ROW_COMPOSITION_INFO = 15;
-    private static final int ROW_COUNT = BuildConfig.DEBUG_PRIVATE_VERSION ? 16 : 13;
+    private static final int ROW_BITRATE = 5;
+    private static final int ROW_MOTION_PRIORITY = 6;
+    private static final int ROW_STABILIZATION = 7;
+    private static final int ROW_LOW_LIGHT = 8;
+    private static final int ROW_GENERAL_INFO = 9;
+    private static final int ROW_DIAGNOSTICS_HEADER = 10;
+    private static final int ROW_DIAGNOSTICS = 11;
+    private static final int ROW_RESET = 12;
+    private static final int ROW_DIAGNOSTICS_INFO = 13;
+    private static final int ROW_COMPOSITION_HEADER = 14;
+    private static final int ROW_COMPOSITION = 15;
+    private static final int ROW_COMPOSITION_INFO = 16;
+    private static final int ROW_COUNT = BuildConfig.DEBUG_PRIVATE_VERSION ? 17 : 14;
 
     private RecyclerListView listView;
     private ListAdapter adapter;
@@ -161,6 +162,17 @@ public class RoundVideoSettingsActivity extends BaseFragment {
                             ? RoundVideoSession.FrameRate.FPS_30
                             : RoundVideoSession.FrameRate.FPS_60)
             );
+        } else if (position == ROW_BITRATE) {
+            showChoice(
+                    R.string.RoundVideoBitrate,
+                    new CharSequence[]{
+                            bitrateLabel(RoundVideoSession.VideoBitrate.LOW),
+                            bitrateLabel(RoundVideoSession.VideoBitrate.HIGH)
+                    },
+                    index -> SharedSettings.roundVideoBitrate.set(
+                            RoundVideoSession.VideoBitrate.values()[index]
+                    )
+            );
         } else if (position == ROW_MOTION_PRIORITY) {
             showChoice(
                     R.string.RoundVideoMotionPriority,
@@ -197,6 +209,12 @@ public class RoundVideoSettingsActivity extends BaseFragment {
 
     private interface ChoiceHandler {
         void onChoice(int index);
+    }
+
+    private static String bitrateLabel(RoundVideoSession.VideoBitrate value) {
+        return LocaleController.getString(value == RoundVideoSession.VideoBitrate.HIGH
+                ? R.string.RoundVideoBitrateHigh
+                : R.string.RoundVideoBitrateLow);
     }
 
     private static String motionPriorityLabel(RoundVideoSession.MotionPriority value) {
@@ -241,6 +259,7 @@ public class RoundVideoSettingsActivity extends BaseFragment {
             return position == ROW_OUTPUT_RESOLUTION
                     || position == ROW_CAMERA_RESOLUTION
                     || position == ROW_FRAME_RATE
+                    || position == ROW_BITRATE
                     || position == ROW_MOTION_PRIORITY
                     || position == ROW_STABILIZATION
                     || position == ROW_LOW_LIGHT
@@ -337,6 +356,12 @@ public class RoundVideoSettingsActivity extends BaseFragment {
                     cell.setTextAndValue(
                             LocaleController.getString(R.string.RoundVideoCameraResolution),
                             cameraResolutionLabel(SharedSettings.roundVideoCameraResolution.get()),
+                            true
+                    );
+                } else if (position == ROW_BITRATE) {
+                    cell.setTextAndValue(
+                            LocaleController.getString(R.string.RoundVideoBitrate),
+                            bitrateLabel(SharedSettings.roundVideoBitrate.get()),
                             true
                     );
                 } else {

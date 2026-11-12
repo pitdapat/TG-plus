@@ -68,6 +68,25 @@ public final class RoundVideoSession {
         BACK
     }
 
+    /** Encoded video bitrate for the round video. */
+    public enum VideoBitrate {
+        /** 1 Mbps, matching the official app: smaller files and faster uploads. */
+        LOW(1_000_000),
+        /** 2 Mbps: less blocking in fast motion and dim light, about twice the file size. */
+        HIGH(2_000_000);
+
+        private final int bitsPerSecond;
+
+        VideoBitrate(int bitsPerSecond) {
+            this.bitsPerSecond = bitsPerSecond;
+        }
+
+        /** Returns the bitrate in bits per second. */
+        public int getBitsPerSecond() {
+            return bitsPerSecond;
+        }
+    }
+
     /** How hard the recorder limits shutter time in dim light to reduce motion blur. */
     public enum MotionPriority {
         /** Regular auto exposure. */
