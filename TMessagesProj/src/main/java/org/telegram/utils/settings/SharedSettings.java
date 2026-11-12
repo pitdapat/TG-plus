@@ -28,6 +28,9 @@ public final class SharedSettings {
     public static final EnumSetting<RoundVideoSession.FrameRate> roundVideoFrameRate =
         EnumSetting.of("round_video_frame_rate", RoundVideoSession.FrameRate.FPS_30);
 
+    public static final EnumSetting<RoundVideoSession.VideoBitrate> roundVideoBitrate =
+        EnumSetting.of("round_video_bitrate", RoundVideoSession.VideoBitrate.LOW);
+
     public static final BooleanSetting roundVideoStabilization =
         BooleanSetting.of("round_video_stabilization", false);
 
@@ -51,6 +54,7 @@ public final class SharedSettings {
         roundVideoOutputResolution.reset();
         roundVideoCameraResolution.reset();
         roundVideoFrameRate.reset();
+        roundVideoBitrate.reset();
         roundVideoMotionPriorityLevel.reset();
         roundVideoStabilization.reset();
         roundVideoLowLightBoost.reset();
