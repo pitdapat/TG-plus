@@ -127,6 +127,11 @@ android {
         }
     }
 
+    // IWidgetEngine: the widget engine's isolated process (WidgetEngineService).
+    buildFeatures {
+        aidl true
+    }
+
     lintOptions {
         disable 'MissingTranslation'
         disable 'ExtraTranslation'
@@ -208,7 +213,7 @@ android {
             cmake {
                 version '3.22.1'
                 arguments '-DANDROID_STL=c++_static', '-DANDROID_PLATFORM=android-23' //, '-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON'
-                targets 'tmessages.49'
+                targets 'tmessages.49', 'twidget'
                 if (System.getenv("TELEGRAM_PLUS_CCACHE") == "1") {
                     arguments '-DCMAKE_C_COMPILER_LAUNCHER=ccache',
                               '-DCMAKE_CXX_COMPILER_LAUNCHER=ccache'

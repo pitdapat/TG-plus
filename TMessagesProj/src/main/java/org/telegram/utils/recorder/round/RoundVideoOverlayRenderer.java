@@ -266,6 +266,12 @@ final class RoundVideoOverlayRenderer {
     private final FloatBuffer textureBuffer;
     private FloatBuffer cameraTextureBuffer;
     private FloatBuffer rotatedCameraTextureBuffer;
+    /**
+     * Display rotation in degrees (0, 90, 180, 270). The SurfaceTexture matrix only makes the
+     * frame upright for the device's natural orientation, so the camera quad is rotated by the
+     * display rotation on top of it, exactly like a TextureView preview transform would be.
+     */
+    private int displayRotation;
     private final int[] frameBuffers = new int[8];
     private final int[] textures = new int[10];
 
@@ -315,8 +321,7 @@ final class RoundVideoOverlayRenderer {
 
         float[] vertexData = new float[48];
         setVertexCoordinates(vertexData, VERTEX_NORMAL, -1f, 1f, 1f, -1f);
-        cameraTextureBuffer = createCameraTextureBuffer(inputSize, sourceCropSize, false);
-        rotatedCameraTextureBuffer = createCameraTextureBuffer(inputSize, sourceCropSize, true);
+        updateCameraTextureBuffers();
 
         GLES20.glGenTextures(textures.length, textures, 0);
         if (compositionEnabled) {
@@ -415,8 +420,7 @@ final class RoundVideoOverlayRenderer {
     void updateInputConfiguration(@NonNull Size inputSize, int sourceCropSize) {
         this.inputSize = inputSize;
         this.sourceCropSize = sourceCropSize;
-        cameraTextureBuffer = createCameraTextureBuffer(inputSize, sourceCropSize, false);
-        rotatedCameraTextureBuffer = createCameraTextureBuffer(inputSize, sourceCropSize, true);
+        updateCameraTextureBuffers();
         historyValid = false;
         lastHistoryFrameNs = 0;
     }
@@ -477,14 +481,14 @@ final class RoundVideoOverlayRenderer {
         GLES20.glViewport(0, 0, outputWidth, outputHeight);
         GLES20.glDisable(GLES20.GL_BLEND);
         bindProgram(transitionProgram, TEXTURE_NORMAL);
-        bindTexture(0, TEXTURE_SWITCH_OLD, transitionProgram.textureHandle);
-        bindTexture(1, TEXTURE_SWITCH_OLD_MIP, transitionProgram.oldMipTextureHandle);
-        bindTexture(2, TEXTURE_SWITCH_NEW, transitionProgram.newTextureHandle);
-        bindTexture(3, TEXTURE_SWITCH_NEW_BLUR, transitionProgram.newBlurTextureHandle);
+        bindTexture(0, TEXTURE_SWITCH_OLD);
+        bindTexture(1, TEXTURE_SWITCH_OLD_MIP);
+        bindTexture(2, TEXTURE_SWITCH_NEW);
+        bindTexture(3, TEXTURE_SWITCH_NEW_BLUR);
         if (compositionEnabled) {
-            bindTexture(4, switchOldBackgroundTexture, transitionProgram.oldBackgroundHandle);
-            bindTexture(5, switchNewBackgroundTexture, transitionProgram.newBackgroundHandle);
-            bindTexture(6, TEXTURE_MASK, transitionProgram.maskTextureHandle);
+            bindTexture(4, switchOldBackgroundTexture);
+            bindTexture(5, switchNewBackgroundTexture);
+            bindTexture(6, TEXTURE_MASK);
         }
         float oldBlurStep = Math.max(0f, oldBlurRadius)
                 * SWITCH_OLD_BLUR_STEP_SCALE / outputSize;
@@ -504,7 +508,6 @@ final class RoundVideoOverlayRenderer {
         GLES20.glUniform1f(transitionProgram.newBlurHandle, newBlur);
         GLES20.glUniform1f(transitionProgram.mixHandle, mix);
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
-        unbindProgram(transitionProgram);
         renderWatermarks();
     }
 
@@ -543,8 +546,8 @@ final class RoundVideoOverlayRenderer {
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, frameBuffers[targetTexture]);
         GLES20.glViewport(0, 0, BLUR_SIZE, BLUR_SIZE);
         bindCameraProgram(temporalProgram, textureMatrix);
-        bindExternalTexture(0, cameraTexture, temporalProgram.textureHandle);
-        bindTexture(1, historyReadTexture, temporalProgram.historyTextureHandle);
+        bindExternalTexture(0, cameraTexture);
+        bindTexture(1, historyReadTexture);
 
         boolean swapAxes = swapsTextureAxes(textureMatrix);
         int cropSize = getCropSize();
@@ -564,7 +567,6 @@ final class RoundVideoOverlayRenderer {
         );
         GLES20.glUniform1f(temporalProgram.historyWeightHandle, historyWeight);
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
-        unbindProgram(temporalProgram);
     }
 
     private void renderMix(
@@ -577,11 +579,10 @@ final class RoundVideoOverlayRenderer {
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
         GLES20.glViewport(0, 0, outputWidth, outputHeight);
         bindCameraProgram(mixProgram, textureMatrix);
-        bindExternalTexture(0, cameraTexture, mixProgram.textureHandle);
-        bindTexture(1, backgroundTexture, mixProgram.blurredTextureHandle);
-        bindTexture(2, TEXTURE_MASK, mixProgram.maskTextureHandle);
+        bindExternalTexture(0, cameraTexture);
+        bindTexture(1, backgroundTexture);
+        bindTexture(2, TEXTURE_MASK);
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
-        unbindProgram(mixProgram);
     }
 
     private void renderWatermarks() {
@@ -595,9 +596,8 @@ final class RoundVideoOverlayRenderer {
                 TEXTURE_BUFFER_WATERMARK + frame * 24,
                 VERTEX_WATERMARK
         );
-        bindTexture(0, TEXTURE_WATERMARK, watermarkProgram.textureHandle);
+        bindTexture(0, TEXTURE_WATERMARK);
         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 12);
-        unbindProgram(watermarkProgram);
 
         GLES20.glDisable(GLES20.GL_BLEND);
     }
@@ -612,9 +612,8 @@ final class RoundVideoOverlayRenderer {
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, frameBuffers[targetFrameBuffer]);
         GLES20.glViewport(0, 0, width, height);
         bindCameraProgram(cameraProgram, textureMatrix);
-        bindExternalTexture(0, cameraTexture, cameraProgram.textureHandle);
+        bindExternalTexture(0, cameraTexture);
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
-        unbindProgram(cameraProgram);
     }
 
     private void renderRawCameraToOutput(
@@ -626,9 +625,8 @@ final class RoundVideoOverlayRenderer {
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
         GLES20.glViewport(0, 0, width, height);
         bindCameraProgram(cameraProgram, textureMatrix);
-        bindExternalTexture(0, cameraTexture, cameraProgram.textureHandle);
+        bindExternalTexture(0, cameraTexture);
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
-        unbindProgram(cameraProgram);
     }
 
     private void renderTextureCopy(
@@ -640,9 +638,8 @@ final class RoundVideoOverlayRenderer {
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, frameBuffers[targetFrameBuffer]);
         GLES20.glViewport(0, 0, width, height);
         bindProgram(copyProgram, TEXTURE_NORMAL);
-        bindTexture(0, sourceTexture, copyProgram.textureHandle);
+        bindTexture(0, sourceTexture);
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
-        unbindProgram(copyProgram);
     }
 
     private void renderNewSwitchBlur(float radiusPixels) {
@@ -702,10 +699,9 @@ final class RoundVideoOverlayRenderer {
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, frameBuffers[targetFrameBuffer]);
         GLES20.glViewport(0, 0, width, height);
         bindProgram(gaussianBlurProgram, TEXTURE_NORMAL);
-        bindTexture(0, sourceTexture, gaussianBlurProgram.textureHandle);
+        bindTexture(0, sourceTexture);
         GLES20.glUniform2f(gaussianBlurProgram.offsetHandle, offsetX, offsetY);
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
-        unbindProgram(gaussianBlurProgram);
     }
 
     private void renderSwitchGaussianBlurPass(
@@ -719,10 +715,9 @@ final class RoundVideoOverlayRenderer {
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, frameBuffers[targetFrameBuffer]);
         GLES20.glViewport(0, 0, width, height);
         bindProgram(switchGaussianBlurProgram, TEXTURE_NORMAL);
-        bindTexture(0, sourceTexture, switchGaussianBlurProgram.textureHandle);
+        bindTexture(0, sourceTexture);
         GLES20.glUniform2f(switchGaussianBlurProgram.offsetHandle, offsetX, offsetY);
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
-        unbindProgram(switchGaussianBlurProgram);
     }
 
     private float getHistoryWeight(long frameTimeNs) {
@@ -879,15 +874,12 @@ final class RoundVideoOverlayRenderer {
         );
     }
 
-    private static void unbindProgram(Program program) {
-    }
-
-    private void bindTexture(int unit, int textureIndex, int uniformHandle) {
+    private void bindTexture(int unit, int textureIndex) {
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0 + unit);
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textures[textureIndex]);
     }
 
-    private static void bindExternalTexture(int unit, int texture, int uniformHandle) {
+    private static void bindExternalTexture(int unit, int texture) {
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0 + unit);
         GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, texture);
     }
@@ -1106,10 +1098,39 @@ final class RoundVideoOverlayRenderer {
         return buffer;
     }
 
+    /** Rotates the camera quad by the display rotation; see {@link #displayRotation}. */
+    void setDisplayRotation(int degrees) {
+        int normalized = ((degrees % 360) + 360) % 360;
+        if (displayRotation == normalized) return;
+        displayRotation = normalized;
+        updateCameraTextureBuffers();
+    }
+
+    private void updateCameraTextureBuffers() {
+        cameraTextureBuffer = createCameraTextureBuffer(
+                inputSize,
+                sourceCropSize,
+                false,
+                displayRotation
+        );
+        rotatedCameraTextureBuffer = createCameraTextureBuffer(
+                inputSize,
+                sourceCropSize,
+                true,
+                displayRotation
+        );
+    }
+
+    /**
+     * Texture coordinates of the centred square crop for the quad vertices (bottom-left,
+     * bottom-right, top-left, top-right). A display rotation of R degrees shows the image
+     * rotated counter-clockwise by R, so each vertex samples the corner rotated by -R.
+     */
     private static FloatBuffer createCameraTextureBuffer(
             Size inputSize,
             int sourceCropSize,
-            boolean swapAxes
+            boolean swapAxes,
+            int displayRotation
     ) {
         int cropSize = Math.min(
                 sourceCropSize,
@@ -1119,12 +1140,35 @@ final class RoundVideoOverlayRenderer {
         int textureHeight = swapAxes ? inputSize.getWidth() : inputSize.getHeight();
         float halfWidth = cropSize / (2f * textureWidth);
         float halfHeight = cropSize / (2f * textureHeight);
-        return createBuffer(new float[]{
-                0.5f - halfWidth, 0.5f - halfHeight,
-                0.5f + halfWidth, 0.5f - halfHeight,
-                0.5f - halfWidth, 0.5f + halfHeight,
-                0.5f + halfWidth, 0.5f + halfHeight
-        });
+        float[] vertices = {-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f};
+        float[] coordinates = new float[8];
+        for (int i = 0; i < 4; i++) {
+            float x = vertices[i * 2];
+            float y = vertices[i * 2 + 1];
+            float u;
+            float v;
+            switch (displayRotation) {
+                case 90:
+                    u = y;
+                    v = -x;
+                    break;
+                case 180:
+                    u = -x;
+                    v = -y;
+                    break;
+                case 270:
+                    u = -y;
+                    v = x;
+                    break;
+                default:
+                    u = x;
+                    v = y;
+                    break;
+            }
+            coordinates[i * 2] = 0.5f + u * halfWidth;
+            coordinates[i * 2 + 1] = 0.5f + v * halfHeight;
+        }
+        return createBuffer(coordinates);
     }
 
     private int getCropSize() {
