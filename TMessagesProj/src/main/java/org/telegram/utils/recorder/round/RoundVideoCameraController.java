@@ -133,7 +133,7 @@ final class RoundVideoCameraController {
     private static final int PREVIEW_SHORT_SIDE = 720;
     /** A 60 fps range must not let auto exposure go below this frame rate. */
     private static final int MINIMUM_STEADY_FPS = 30;
-    /** Square field of view (fraction of sensor height) treated as "not zoomed". */
+    /** Square coverage (fraction of sensor height in the bubble) treated as "not zoomed". */
     private static final float FULL_FIELD_OF_VIEW = 0.99f;
     private static final int MAXIMUM_SOURCE_SHORT_SIDE = 1088;
     private static final int MAXIMUM_SOURCE_LONG_SIDE = 1920;
@@ -897,11 +897,9 @@ final class RoundVideoCameraController {
                     true,
                     false
             );
-            captureSession.setRepeatingRequest(
-                    repeatingBuilder.build(),
-                    captureCallback,
-                    cameraHandler
-            );
+            // Same path as a normal start, so the new active camera gets autofocus and the
+            // stabilization setting right away instead of on the next exposure update.
+            submitRepeatingRequest();
             if (warmCameraSelection != null) {
                 warmRepeatingBuilder = createRepeatingRequestBuilder(
                         warmCameraDevice,
@@ -2818,7 +2816,8 @@ final class RoundVideoCameraController {
             return "recording=" + pair.recording
                     + ", crop=" + pair.cropSize
                     + ", tierUsed=" + pair.cameraResolution
-                    + ", squareFov=" + Math.round(squareFieldOfView(pair.recording, sensorAspect) * 100f)
+                    + ", squareFov=" + Math.round(
+                            squareFieldCoverage(pair.recording, pair.cropSize, sensorAspect) * 100f)
                     + "% of sensor height";
         } catch (RuntimeException e) {
             return "no valid output: " + e.getMessage();
@@ -2847,8 +2846,10 @@ final class RoundVideoCameraController {
                 preferredCrop,
                 requestedResolution
         );
-        if (preferred != null
-                && squareFieldOfView(preferred.recording, sensorAspectRatio) < FULL_FIELD_OF_VIEW) {
+        float preferredCoverage = preferred == null
+                ? 0f
+                : squareFieldCoverage(preferred.recording, preferred.cropSize, sensorAspectRatio);
+        if (preferred != null && preferredCoverage < FULL_FIELD_OF_VIEW) {
             // e.g. MEDIUM on a phone without 960x720 only finds 1280x720 (16:9), which shows
             // 75% of a 4:3 sensor. A neighbouring tier with a wider view looks far less zoomed.
             OutputPair wider = chooseWiderTierPair(
@@ -2856,7 +2857,7 @@ final class RoundVideoCameraController {
                     outputResolution,
                     requestedResolution,
                     sensorAspectRatio,
-                    squareFieldOfView(preferred.recording, sensorAspectRatio)
+                    preferredCoverage
             );
             if (wider != null) return wider;
         }
@@ -2921,7 +2922,7 @@ final class RoundVideoCameraController {
             @NonNull RoundVideoSession.OutputResolution outputResolution,
             @NonNull RoundVideoSession.CameraResolution requested,
             float sensorAspect,
-            float currentFieldOfView
+            float currentCoverage
     ) {
         RoundVideoSession.CameraResolution[] order;
         if (requested == RoundVideoSession.CameraResolution.HIGH) {
@@ -2941,23 +2942,12 @@ final class RoundVideoCameraController {
                     getSourceCropSize(outputResolution, tier),
                     tier
             );
-            if (pair != null
-                    && squareFieldOfView(pair.recording, sensorAspect) > currentFieldOfView + 0.01f) {
+            if (pair != null && squareFieldCoverage(pair.recording, pair.cropSize, sensorAspect)
+                    > currentCoverage + 0.01f) {
                 return pair;
             }
         }
         return null;
-    }
-
-    /**
-     * Returns the square field of view of {@code size} relative to the sensor's short side.
-     * The HAL crops the sensor to the stream's aspect ratio, so streams wider than the sensor
-     * (16:9 on a 4:3 sensor) lose sensor height and look zoomed in once cut to a square.
-     */
-    private static float squareFieldOfView(@NonNull Size size, float sensorAspect) {
-        float streamAspect = Math.max(size.getWidth(), size.getHeight())
-                / (float) shortSide(size);
-        return Math.min(1f, sensorAspect / streamAspect);
     }
 
     /**

@@ -62,6 +62,11 @@ import java.util.ArrayList;
 /** Telegram UI adapter for the standalone Camera2 round-video session. */
 public final class InstantCameraView2 extends InstantCameraViewBase {
 
+    /**
+     * Fixed video bitrate for round videos. A 480x480 bubble at 30 FPS looks clean at 2 Mbps;
+     * lower rates only add visible blocking, so this is not a user setting.
+     */
+    public static final int ROUND_VIDEO_BITRATE = 2_000_000;
     private static final long MINIMUM_DURATION_MS = 800L;
     private static final long COVER_FADE_OUT_MS = 140L;
     private static final long COVER_FADE_IN_MS = 320L;
@@ -398,7 +403,7 @@ public final class InstantCameraView2 extends InstantCameraViewBase {
                 .setOutputDirectory(new File(ApplicationLoader.getFilesDirFixed(), "cache"))
                 .setInitialFacing(RoundVideoSession.CameraFacing.FRONT)
                 .setOutputResolution(activeOutputResolution)
-                .setVideoBitrate(Math.max(2_000_000, SharedSettings.roundVideoVideoBitrate.get()))
+                .setVideoBitrate(ROUND_VIDEO_BITRATE)
                 .setCameraResolution(SharedSettings.roundVideoCameraResolution.get())
                 .setFrameRate(SharedSettings.roundVideoFrameRate.get())
                 .setCompositionEnabled(SharedSettings.roundVideoComposition.get())
