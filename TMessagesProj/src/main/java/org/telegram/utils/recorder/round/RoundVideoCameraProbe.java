@@ -244,7 +244,7 @@ public final class RoundVideoCameraProbe {
                 .append(", output=").append(SharedSettings.roundVideoOutputResolution.get())
                 .append(", cameraResolution=").append(SharedSettings.roundVideoCameraResolution.get())
                 .append(", fps=").append(SharedSettings.roundVideoFrameRate.get().getValue())
-                .append(", bitrate=").append(SharedSettings.roundVideoVideoBitrate.get())
+                .append(", bitrate=").append(org.telegram.ui.Components.InstantCameraView2.ROUND_VIDEO_BITRATE)
                 .append('\n');
         r.append("motionPriority=").append(SharedSettings.roundVideoMotionPriorityLevel.get())
                 .append(", stabilization=").append(SharedSettings.roundVideoStabilization.get())

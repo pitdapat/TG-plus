@@ -40,26 +40,18 @@ public class RoundVideoSettingsActivity extends BaseFragment {
     private static final int ROW_OUTPUT_RESOLUTION = 2;
     private static final int ROW_CAMERA_RESOLUTION = 3;
     private static final int ROW_FRAME_RATE = 4;
-    private static final int ROW_BITRATE = 5;
-    private static final int ROW_MOTION_PRIORITY = 6;
-    private static final int ROW_STABILIZATION = 7;
-    private static final int ROW_LOW_LIGHT = 8;
-    private static final int ROW_GENERAL_INFO = 9;
-    private static final int ROW_DIAGNOSTICS_HEADER = 10;
-    private static final int ROW_DIAGNOSTICS = 11;
-    private static final int ROW_RESET = 12;
-    private static final int ROW_DIAGNOSTICS_INFO = 13;
-    private static final int ROW_COMPOSITION_HEADER = 14;
-    private static final int ROW_COMPOSITION = 15;
-    private static final int ROW_COMPOSITION_INFO = 16;
-    private static final int ROW_COUNT = BuildConfig.DEBUG_PRIVATE_VERSION ? 17 : 14;
-
-    private static final int[] BITRATES = {
-            750_000,
-            1_000_000,
-            1_200_000,
-            2_000_000
-    };
+    private static final int ROW_MOTION_PRIORITY = 5;
+    private static final int ROW_STABILIZATION = 6;
+    private static final int ROW_LOW_LIGHT = 7;
+    private static final int ROW_GENERAL_INFO = 8;
+    private static final int ROW_DIAGNOSTICS_HEADER = 9;
+    private static final int ROW_DIAGNOSTICS = 10;
+    private static final int ROW_RESET = 11;
+    private static final int ROW_DIAGNOSTICS_INFO = 12;
+    private static final int ROW_COMPOSITION_HEADER = 13;
+    private static final int ROW_COMPOSITION = 14;
+    private static final int ROW_COMPOSITION_INFO = 15;
+    private static final int ROW_COUNT = BuildConfig.DEBUG_PRIVATE_VERSION ? 16 : 13;
 
     private RecyclerListView listView;
     private ListAdapter adapter;
@@ -169,16 +161,6 @@ public class RoundVideoSettingsActivity extends BaseFragment {
                             ? RoundVideoSession.FrameRate.FPS_30
                             : RoundVideoSession.FrameRate.FPS_60)
             );
-        } else if (position == ROW_BITRATE) {
-            CharSequence[] labels = new CharSequence[BITRATES.length];
-            for (int i = 0; i < (BITRATES.length - (BuildConfig.DEBUG_PRIVATE_VERSION ? 0 : 1)); i++) {
-                labels[i] = formatBitrate(BITRATES[i]);
-            }
-            showChoice(
-                    R.string.RoundVideoBitrate,
-                    labels,
-                    index -> SharedSettings.roundVideoVideoBitrate.set(BITRATES[index])
-            );
         } else if (position == ROW_MOTION_PRIORITY) {
             showChoice(
                     R.string.RoundVideoMotionPriority,
@@ -211,16 +193,6 @@ public class RoundVideoSettingsActivity extends BaseFragment {
             adapter.notifyDataSetChanged();
         });
         showDialog(builder.create());
-    }
-
-    private static String formatBitrate(int bitrate) {
-        if (bitrate % 1_000_000 == 0) {
-            return (bitrate / 1_000_000) + " Mbps";
-        }
-        if (bitrate > 1_000_000) {
-            return String.format(java.util.Locale.US, "%.1f Mbps", bitrate / 1_000_000f);
-        }
-        return (bitrate / 1_000) + " kbps";
     }
 
     private interface ChoiceHandler {
@@ -269,7 +241,6 @@ public class RoundVideoSettingsActivity extends BaseFragment {
             return position == ROW_OUTPUT_RESOLUTION
                     || position == ROW_CAMERA_RESOLUTION
                     || position == ROW_FRAME_RATE
-                    || position == ROW_BITRATE
                     || position == ROW_MOTION_PRIORITY
                     || position == ROW_STABILIZATION
                     || position == ROW_LOW_LIGHT
@@ -368,16 +339,10 @@ public class RoundVideoSettingsActivity extends BaseFragment {
                             cameraResolutionLabel(SharedSettings.roundVideoCameraResolution.get()),
                             true
                     );
-                } else if (position == ROW_FRAME_RATE) {
+                } else {
                     cell.setTextAndValue(
                             LocaleController.getString(R.string.RoundVideoFrameRate),
                             SharedSettings.roundVideoFrameRate.get().getValue() + " FPS",
-                            true
-                    );
-                } else {
-                    cell.setTextAndValue(
-                            LocaleController.getString(R.string.RoundVideoBitrate),
-                            formatBitrate(SharedSettings.roundVideoVideoBitrate.get()),
                             true
                     );
                 }

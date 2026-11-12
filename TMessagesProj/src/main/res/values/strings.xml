@@ -11303,7 +11303,6 @@
     <string name="RoundVideoCameraResolutionMedium">Medium</string>
     <string name="RoundVideoCameraResolutionLow">Low</string>
     <string name="RoundVideoFrameRate">Frame rate</string>
-    <string name="RoundVideoBitrate">Video bitrate</string>
     <string name="RoundVideoStabilization">Video stabilization</string>
     <string name="RoundVideoStabilizationInfo">Steadier video, slightly narrower view</string>
     <string name="RoundVideoLowLightBoost">Low-light boost</string>
