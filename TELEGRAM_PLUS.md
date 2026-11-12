@@ -31,6 +31,17 @@ merge retains both local notification diagnostics and new upstream QR/wallet
 strings. Package identity, signing, Firebase configuration and ARM64 packaging
 remain the Telegram Plus configuration.
 
+The 13.2.2 (7303) integration merges upstream commit
+`21f7d109da6ab3506c9e9577f98c6a38771ab335`. The `twidget` and `widget-sandbox`
+sources are now pinned submodules under `TMessagesProj/jni/twidget/`, and the
+`twidget` CMake target builds next to `tmessages.49` with ccache still enabled.
+In the round-video camera controller, upstream's dual-active camera refactor and
+single-stream, coverage-based output selection replace our older warm-switch and
+separate preview-stream code. On top of that we keep the remembered per-device
+dual-camera failure, motion priority and low-light exposure control with shadow
+lift, the first-preview-frame callback, stabilization fallback, the steady 30 FPS
+range rule and the fallback to a neighbouring tier when a stream would zoom in.
+
 ## Original source recovery
 
 Recovered from the original Round_Camera_Prototype.zip source archive (version 11).
