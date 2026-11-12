@@ -158,9 +158,6 @@ final class RoundVideoCameraController {
     private final boolean videoStabilizationEnabled;
     private final RoundVideoSession.MotionPriority motionPriority;
     private final boolean lowLightBoost;
-    /** Shadow lift currently shown on the direct (non-GL) preview; main thread only. */
-    private float previewLift;
-    private android.animation.ValueAnimator previewLiftAnimator;
     private final RoundVideoDiagnostics diagnostics;
     private final Callback callback;
     private final Rect zoomCropRect = new Rect();
@@ -1297,45 +1294,10 @@ final class RoundVideoCameraController {
         diagnostics.log("dual camera marked unsupported for this device: reason=" + reason);
     }
 
-    /** Brightens shadows in the recording (GL) and, when the preview bypasses GL, on screen. */
+    /** Brightens shadows; the GL processor renders both the preview and the recording. */
     private void applyLift(float target) {
         RoundVideoGlProcessor processor = glProcessor;
         if (processor != null) processor.setLift(target);
-        if (glPreviewEnabled) return;
-        previewView.post(() -> animatePreviewLift(target));
-    }
-
-    private void animatePreviewLift(float target) {
-        if (previewLiftAnimator != null && previewLiftAnimator.isRunning()) {
-            if (Math.abs((float) previewLiftAnimator.getAnimatedValue() - target) < 0.001f) return;
-        } else if (Math.abs(previewLift - target) < 0.001f) {
-            return;
-        }
-        if (previewLiftAnimator != null) previewLiftAnimator.cancel();
-        previewLiftAnimator = android.animation.ValueAnimator.ofFloat(previewLift, target);
-        previewLiftAnimator.setDuration(900);
-        previewLiftAnimator.addUpdateListener(animation -> {
-            previewLift = (float) animation.getAnimatedValue();
-            setPreviewLiftPaint(previewLift);
-        });
-        previewLiftAnimator.start();
-    }
-
-    /**
-     * The direct camera preview cannot run the GL tone curve, so approximate it with a gain:
-     * f(c) = c + 2k·c(1-c) lifts mid-shadows by about 1 + 1.4k.
-     */
-    private void setPreviewLiftPaint(float lift) {
-        if (lift < 0.005f) {
-            previewView.setLayerPaint(null);
-            return;
-        }
-        float gain = 1f + 1.4f * lift;
-        android.graphics.ColorMatrix matrix = new android.graphics.ColorMatrix();
-        matrix.setScale(gain, gain, gain, 1f);
-        android.graphics.Paint paint = new android.graphics.Paint();
-        paint.setColorFilter(new android.graphics.ColorMatrixColorFilter(matrix));
-        previewView.setLayerPaint(paint);
     }
 
     private void disableDualActive(@NonNull String reason, @Nullable Exception error) {
