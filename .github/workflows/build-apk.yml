@@ -82,7 +82,30 @@ jobs:
           fetch() { git -c protocol.version=2 submodule update --init --force --depth=1 --recursive --jobs 8; }
           fetch || { echo "::warning::Submodule fetch failed, retrying once"; sleep 5; fetch; }
           # '-' = not fetched, '+' = checked out at a commit other than the pinned one.
-          if git submodule status --recursive | grep -E '^[-+U]'; then
+          # A '-' submodule whose parent's .gitmodules sets `update = none` is skipped by git
+          # on purpose (e.g. quickjs/test262 inside widget-sandbox), so it is not an error.
+          check="$RUNNER_TEMP/check-submodules.sh"
+          cat > "$check" <<'SH'
+          prefix=$1
+          git submodule status | while IFS= read -r line; do
+            state=${line:0:1}
+            [ "$state" = " " ] && continue
+            path=$(printf '%s\n' "${line:1}" | awk '{print $2}')
+            if [ "$state" = "-" ]; then
+              name=$(git config -f .gitmodules --get-regexp '^submodule\..*\.path$' \
+                | awk -v p="$path" '$2 == p {print $1}' | sed 's/^submodule\.//; s/\.path$//')
+              if [ -n "$name" ] && [ "$(git config -f .gitmodules --get "submodule.$name.update")" = none ]; then
+                echo "Skipped on purpose (update = none): $prefix$path" >&2
+                continue
+              fi
+            fi
+            echo "$state$prefix$path"
+          done
+          exit 0
+          SH
+          bad=$( { bash "$check" ""; git submodule foreach --quiet --recursive "bash '$check' \"\$displaypath/\""; } )
+          if [ -n "$bad" ]; then
+            echo "$bad"
             echo "::error::Some submodules are missing or not at their pinned commit."
             exit 1
           fi
