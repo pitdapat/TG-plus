@@ -91,7 +91,7 @@ public class DiagnosticsTest {
   PushDiagnostics.event("PUSH_TYPE","Hi \\"friend\\" | token/abc\\nline");
   String last=PushDiagnostics.events()[PushDiagnostics.events().length-1];
   check(last.split("\\\\|").length==3 && !last.contains("\\"") && !last.contains("/"),"event detail sanitized: "+last);
-  check(PushDiagnostics.safeDetail(null).isEmpty() && PushDiagnostics.safeDetail("x".repeat(200)).length()==60,"detail length bounded");
+  check(PushDiagnostics.safeDetail(null).isEmpty() && PushDiagnostics.safeDetail("x".repeat(500)).length()==PushDiagnostics.MAX_DETAIL,"detail length bounded");
   // Registration and token steps are logged without raw values.
   PushDiagnostics.clear();
   PushDiagnostics.tokenReady(token);
@@ -128,6 +128,12 @@ public class DiagnosticsTest {
    check(!value.toString().contains(token),"no raw token stored in events");
    check(!value.toString().contains(Long.toString(user)),"no raw user ID stored in events");
   }
+  PushDiagnostics.clear();
+  PushDiagnostics.received(0,1,1,"app=background screen=off conn=connected");
+  String ctx=PushDiagnostics.events()[0];
+  check(ctx.endsWith("|PUSH_RECEIVED|priority=1 original=1 app=background screen=off conn=connected"),"app state recorded: "+ctx);
+  PushDiagnostics.received(0,1,1,"bad\\\"ctx/"+token);
+  check(!String.join("\\n",PushDiagnostics.events()).contains("/"),"context sanitized");
   System.out.println("PASS: diagnostics transitions, account/token isolation, errors, receipt races, concurrency, privacy, clearing, event history, self-test and timeouts");
  }
 }''',

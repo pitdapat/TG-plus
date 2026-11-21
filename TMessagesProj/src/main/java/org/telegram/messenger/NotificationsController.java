@@ -1125,6 +1125,8 @@ public class NotificationsController extends BaseController implements Notificat
             boolean added = false;
             boolean edited = false;
             boolean storiesUpdated = false;
+            // TG+ diagnostics: why the latest message in this batch was or was not notified.
+            String diagReason = "no message";
 
             LongSparseArray<Boolean> settingsCache = new LongSparseArray<>();
             SharedPreferences preferences = getAccountInstance().getNotificationsSettings();
@@ -1141,6 +1143,7 @@ public class NotificationsController extends BaseController implements Notificat
                     if (BuildVars.LOGS_ENABLED) {
                         FileLog.d("skipped message because 1");
                     }
+                    diagReason = "skipped: service or imported message";
                     continue;
                 }
                 if (messageObject.isStoryPush) {
@@ -1169,15 +1172,16 @@ public class NotificationsController extends BaseController implements Notificat
                     }
 
                     Collections.sort(storyPushMessages, Comparator.comparingLong(n -> n.date));
+                    diagReason = "story notification";
                     continue;
                 }
                 if (messageObject != null && messageObject.isOauthPush) {
-                    if (messageObject.messageOwner == null) continue;
+                    if (messageObject.messageOwner == null) { diagReason = "skipped: empty login request"; continue; }
                     int msg_id = messageObject.messageOwner.id;
                     long date = messageObject.messageOwner.date;
                     long expire_date = date + 60;
                     long now = ConnectionsManager.getInstance(currentAccount).getCurrentTime();
-                    if (now > expire_date) continue;
+                    if (now > expire_date) { diagReason = "skipped: login request expired"; continue; }
                     AndroidUtilities.runOnUIThread(() -> {
                         final LongSparseArray<ArrayList<Integer>> deletedMessages = new LongSparseArray<>();
                         deletedMessages.put(0, Lists.newArrayList(msg_id));
@@ -1231,12 +1235,14 @@ public class NotificationsController extends BaseController implements Notificat
                     if (BuildVars.LOGS_ENABLED) {
                         FileLog.d("skipped message because old message with same dialog and message ids exist: did=" + did + ", mid="+mid);
                     }
+                    diagReason = "skipped: duplicate - already received";
                     continue;
                 }
                 if (edited) {
                     if (BuildVars.LOGS_ENABLED) {
                         FileLog.d("skipped message because edited");
                     }
+                    diagReason = "skipped: edited message";
                     continue;
                 }
                 if (isFcm && !messageObject.isOauthPush) {
@@ -1252,6 +1258,7 @@ public class NotificationsController extends BaseController implements Notificat
                     if (BuildVars.LOGS_ENABLED) {
                         FileLog.d("skipped message because chat is already opened (openedDialogId = " + openedDialogId + ")");
                     }
+                    diagReason = "skipped: chat is open on screen";
                     continue;
                 }
                 if (messageObject.messageOwner.mentioned) {
@@ -1259,6 +1266,7 @@ public class NotificationsController extends BaseController implements Notificat
                         if (BuildVars.LOGS_ENABLED) {
                             FileLog.d("skipped message because message is mention of pinned");
                         }
+                        diagReason = "skipped: pinned-message notifications off";
                         continue;
                     }
                     dialogId = messageObject.getFromChatId();
@@ -1290,6 +1298,7 @@ public class NotificationsController extends BaseController implements Notificat
                     settingsCache.put(dialogId, value);
                 }
 
+                diagReason = value ? "queued" : "muted: chat or global setting off";
                 if (BuildVars.LOGS_ENABLED) {
                     FileLog.d("NotificationsController: process new messages, value is " + value + " ("+dialogId+", "+isChannel+", "+messageObject.isReactionPush+", "+messageObject.isStoryReactionPush+")");
                 }
@@ -1351,6 +1360,7 @@ public class NotificationsController extends BaseController implements Notificat
                     }
                     delayedPushMessages.clear();
                     showOrUpdateNotification(notifyCheck);
+                    diagReason = "edited: notification updated";
                 } else if (added) {
                     if (BuildVars.LOGS_ENABLED) {
                         FileLog.d("NotificationsController processNewMessages: added branch");
@@ -1385,6 +1395,9 @@ public class NotificationsController extends BaseController implements Notificat
                         }
                     }
                     canAddValue = canAddValue && !messageObject.isStoryPush;
+                    if (!canAddValue && diagReason.equals("queued")) {
+                        diagReason = "muted: chat or global setting off";
+                    }
 
                     if (canAddValue) {
                         if (getMessagesController().isCommunity(dialog_id)) {
@@ -1406,6 +1419,7 @@ public class NotificationsController extends BaseController implements Notificat
                             FileLog.d("NotificationsController processNewMessages: added branch: " + notifyCheck);
                         }
                         showOrUpdateNotification(notifyCheck);
+                        diagReason = "shown";
                         int pushDialogsCount = pushDialogs.size();
                         AndroidUtilities.runOnUIThread(() -> {
                             NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.notificationsCountUpdated, currentAccount);
@@ -1422,8 +1436,12 @@ public class NotificationsController extends BaseController implements Notificat
                 updateStoryPushesRunnable();
             }
             if (isFcm) {
-                PushDiagnostics.event("NOTIFY", added ? "shown or updated account " + currentAccount
-                        : "not shown: duplicate, muted, open chat or filtered");
+                if (diagReason.equals("queued")) diagReason = "not shown: unread count unchanged";
+                PushDiagnostics.event("NOTIFY", diagReason + " - account " + currentAccount);
+            } else if (diagReason.equals("queued") || diagReason.startsWith("skipped: chat is open")) {
+                // Live-connection messages: logged only when notifiable, so busy muted chats cannot flood the history.
+                PushDiagnostics.event("LIVE_NOTIFY", diagReason + " - account " + currentAccount
+                        + (ApplicationLoader.mainInterfacePaused ? " app=background" : " app=foreground"));
             }
             if (countDownLatch != null) {
                 countDownLatch.countDown();

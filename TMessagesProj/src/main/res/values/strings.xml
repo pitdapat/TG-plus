@@ -11669,7 +11669,9 @@
     <string name="PushDiagAppSettings">Open app settings</string>
     <string name="PushDiagCopy">Copy full report</string>
     <string name="PushDiagClear">Clear diagnostic history</string>
-    <string name="PushDiagTestInfo">Tap Run push self-test, then lock the phone or leave the app and have someone message you from another account within 5 minutes. Come back here to see whether the push arrived and what happened to it. Copy the full report to share it; it contains no tokens, names or message text. Clearing history only removes these local diagnostics; it does not unregister notifications.</string>
+    <string name="PushDiagTestInfo">Tap Run push self-test, then lock the phone or leave the app and have someone message you from another account within 5 minutes. Come back here to see whether the push arrived and what happened to it. Share the report as a file (or copy it) to send it; it contains no tokens, names or message text. Clearing history only removes these local diagnostics; it does not unregister notifications.</string>
+    <string name="PushDiagShareFile">Share report as file</string>
+    <string name="PushDiagShareFailed">Could not create the report file</string>
     <string name="PushDiagSelfTest">Run push self-test</string>
     <string name="PushDiagSelfTestTitle">Push self-test</string>
     <string name="PushDiagSelfTestNotRun">not run yet</string>

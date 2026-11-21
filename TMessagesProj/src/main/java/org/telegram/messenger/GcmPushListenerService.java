@@ -26,11 +26,36 @@ public class GcmPushListenerService extends FirebaseMessagingService {
             FileLog.d("FCM message received");
         }
 
-        long receipt = PushDiagnostics.received(time, message.getPriority(), message.getOriginalPriority());
+        long receipt = PushDiagnostics.received(time, message.getPriority(), message.getOriginalPriority(), appState());
         try {
             PushListenerController.processRemoteMessage(PushListenerController.PUSH_TYPE_FIREBASE, data.get("p"), time);
         } finally {
             PushDiagnostics.callbackFinished(receipt);
+        }
+    }
+
+    /** App, screen and live-connection state when a push arrives; no private data. */
+    private static String appState() {
+        String state;
+        try {
+            state = (ApplicationLoader.mainInterfacePaused ? "app=background" : "app=foreground")
+                    + (ApplicationLoader.isScreenOn ? " screen=on" : " screen=off");
+            int connection = org.telegram.tgnet.ConnectionsManager.getInstance(UserConfig.selectedAccount).getConnectionState();
+            state += " conn=" + connectionName(connection);
+        } catch (Throwable e) {
+            state = "state=unknown";
+        }
+        return state;
+    }
+
+    private static String connectionName(int state) {
+        switch (state) {
+            case org.telegram.tgnet.ConnectionsManager.ConnectionStateConnecting: return "connecting";
+            case org.telegram.tgnet.ConnectionsManager.ConnectionStateWaitingForNetwork: return "waiting-for-network";
+            case org.telegram.tgnet.ConnectionsManager.ConnectionStateConnected: return "connected";
+            case org.telegram.tgnet.ConnectionsManager.ConnectionStateConnectingToProxy: return "connecting-to-proxy";
+            case org.telegram.tgnet.ConnectionsManager.ConnectionStateUpdating: return "updating";
+            default: return Integer.toString(state);
         }
     }
 

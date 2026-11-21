@@ -12,7 +12,9 @@ public final class PushDiagnostics {
     private static final String PREFS = "tgplus_push_diagnostics";
     private static long receiptSequence;
     /** Number of entries kept in the local event history. */
-    public static final int MAX_EVENTS = 40;
+    public static final int MAX_EVENTS = 200;
+    /** Longest event detail kept, in characters. */
+    public static final int MAX_DETAIL = 120;
     /** How long the self-test waits for a push after re-registering. */
     public static final long SELF_TEST_WINDOW_MS = 5 * 60 * 1000L;
     /** Longest time a push callback waits for its notification work (FCM allows about 20s). */
@@ -60,7 +62,7 @@ public final class PushDiagnostics {
     public static String safeDetail(String detail) {
         if (detail == null) return "";
         StringBuilder out = new StringBuilder();
-        for (int i = 0; i < detail.length() && out.length() < 60; i++) {
+        for (int i = 0; i < detail.length() && out.length() < MAX_DETAIL; i++) {
             char c = detail.charAt(i);
             if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
                     || c == '_' || c == ':' || c == '.' || c == '-' || c == ' ' || c == '=') {
@@ -187,7 +189,12 @@ public final class PushDiagnostics {
                 "account " + account + (accepted ? "" : " " + failure)).apply();
     }
 
-    public static synchronized long received(long sentAt, int priority, int originalPriority) {
+    public static long received(long sentAt, int priority, int originalPriority) {
+        return received(sentAt, priority, originalPriority, "");
+    }
+
+    /** {@code context} describes app/screen/connection state and is sanitized like any detail. */
+    public static synchronized long received(long sentAt, int priority, int originalPriority, String context) {
         long receipt = ++receiptSequence;
         SharedPreferences p = prefs();
         if (p == null) return receipt;
@@ -202,7 +209,9 @@ public final class PushDiagnostics {
             editor.putLong("selftest_push_at", now);
         }
         String delay = sentAt > 0 && now >= sentAt ? " delay=" + ((now - sentAt) / 1000) + "s" : "";
-        appendEvent(editor, p, "PUSH_RECEIVED", "priority=" + priority + " original=" + originalPriority + delay).apply();
+        String extra = safeDetail(context);
+        appendEvent(editor, p, "PUSH_RECEIVED", "priority=" + priority + " original=" + originalPriority + delay
+                + (extra.isEmpty() ? "" : " " + extra)).apply();
         return receipt;
     }
 
