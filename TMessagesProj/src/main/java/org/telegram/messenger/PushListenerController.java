@@ -30,6 +30,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Locale;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 @Keep
 public class PushListenerController {
@@ -129,6 +130,7 @@ public class PushListenerController {
                     byte[] inAuthKeyId = new byte[8];
                     buffer.readBytes(inAuthKeyId, true);
                     if (!Arrays.equals(SharedConfig.pushAuthKeyId, inAuthKeyId)) {
+                        PushDiagnostics.pushOutcome("DROPPED key id mismatch");
                         onDecryptError(countDownLatch);
                         if (BuildVars.LOGS_ENABLED) {
                             FileLog.d(String.format(Locale.US, tag + " DECRYPT ERROR 2 k1=%s k2=%s, key=%s", Utilities.bytesToHex(SharedConfig.pushAuthKeyId), Utilities.bytesToHex(inAuthKeyId), Utilities.bytesToHex(SharedConfig.pushAuthKey)));
@@ -144,6 +146,7 @@ public class PushListenerController {
 
                     byte[] messageKeyFull = Utilities.computeSHA256(SharedConfig.pushAuthKey, 88 + 8, 32, buffer.buffer, 24, buffer.buffer.limit());
                     if (!Utilities.arraysEquals(messageKey, 0, messageKeyFull, 8)) {
+                        PushDiagnostics.pushOutcome("DROPPED message key mismatch");
                         onDecryptError(countDownLatch);
                         if (BuildVars.LOGS_ENABLED) {
                             FileLog.d(String.format(tag + " DECRYPT ERROR 3, key = %s", Utilities.bytesToHex(SharedConfig.pushAuthKey)));
@@ -158,6 +161,7 @@ public class PushListenerController {
                     JSONObject json = new JSONObject(jsonString);
 
                     if (ApplicationLoader.applicationLoaderInstance != null && ApplicationLoader.applicationLoaderInstance.consumePush(currentAccount, json)) {
+                        PushDiagnostics.pushOutcome("CONSUMED by app");
                         countDownLatch.countDown();
                         return;
                     }
@@ -211,6 +215,7 @@ public class PushListenerController {
                         if (BuildVars.LOGS_ENABLED) {
                             FileLog.d(tag + " ACCOUNT NOT FOUND");
                         }
+                        PushDiagnostics.pushOutcome("DROPPED account not found " + loc_key);
                         countDownLatch.countDown();
                         return;
                     }
@@ -219,12 +224,14 @@ public class PushListenerController {
                         if (BuildVars.LOGS_ENABLED) {
                             FileLog.d(tag + " ACCOUNT NOT ACTIVATED");
                         }
+                        PushDiagnostics.pushOutcome("DROPPED account not activated " + loc_key);
                         countDownLatch.countDown();
                         return;
                     }
                     if (BuildVars.LOGS_ENABLED) {
                         FileLog.d(tag + " " + loc_key);
                     }
+                    PushDiagnostics.event("PUSH_TYPE", loc_key + " account " + currentAccount);
                     switch (loc_key) {
                         case "MESSAGE_WALLET_TONCONNECT_REQUEST":
                         case "MESSAGE_WALLET_TONCONNECT_REQUEST_DAPP": {
@@ -1510,6 +1517,7 @@ public class PushListenerController {
                                     ArrayList<MessageObject> arrayList = new ArrayList<>();
                                     arrayList.add(messageObject);
                                     canRelease = false;
+                                    PushDiagnostics.pushOutcome("SENT to notifications " + loc_key);
                                     FileLog.d("PushListenerController push notification to NotificationsController of " + messageOwner.dialog_id);
                                     if (!messageObject.isStoryReactionPush && !messageObject.isReactionPush && !messageObject.isStoryMentionPush && !messageObject.isStoryPush && !messageObject.isStoryPushHidden && !mention && !pinned && msg_id > 0) {
                                         final long did = dialogId;
@@ -1525,12 +1533,14 @@ public class PushListenerController {
                         }
                     }
                     if (canRelease) {
+                        PushDiagnostics.pushOutcome((dialogId == 0 ? "HANDLED no chat " : "HANDLED without notification ") + loc_key);
                         countDownLatch.countDown();
                     }
 
                     ConnectionsManager.onInternalPushReceived(currentAccount);
                     ConnectionsManager.getInstance(currentAccount).resumeNetworkMaybe();
                 } catch (Throwable e) {
+                    PushDiagnostics.pushOutcome("ERROR " + e.getClass().getSimpleName() + " " + loc_key);
                     if (currentAccount != -1) {
                         ConnectionsManager.onInternalPushReceived(currentAccount);
                         ConnectionsManager.getInstance(currentAccount).resumeNetworkMaybe();
@@ -1546,7 +1556,13 @@ public class PushListenerController {
             });
         });
         try {
-            countDownLatch.await();
+            // Bounded so one stuck notification cannot block every later push on this thread.
+            if (!countDownLatch.await(PushDiagnostics.CALLBACK_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+                PushDiagnostics.callbackTimedOut();
+                if (BuildVars.LOGS_ENABLED) {
+                    FileLog.d(tag + " processing timed out");
+                }
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }

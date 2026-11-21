@@ -1421,6 +1421,10 @@ public class NotificationsController extends BaseController implements Notificat
             if (storiesUpdated) {
                 updateStoryPushesRunnable();
             }
+            if (isFcm) {
+                PushDiagnostics.event("NOTIFY", added ? "shown or updated account " + currentAccount
+                        : "not shown: duplicate, muted, open chat or filtered");
+            }
             if (countDownLatch != null) {
                 countDownLatch.countDown();
             }

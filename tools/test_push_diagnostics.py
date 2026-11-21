@@ -82,7 +82,53 @@ public class DiagnosticsTest {
   check(PushDiagnostics.snapshot(0,user).receivedCount==40,"concurrent receipts preserved");
   PushDiagnostics.clear();
   check(prefs.values.isEmpty(),"clear removes diagnostics only");
-  System.out.println("PASS: diagnostics transitions, account/token isolation, errors, receipt races, concurrency, privacy and clearing");
+  // Event history: bounded, oldest dropped, private text stripped.
+  for(int i=0;i<PushDiagnostics.MAX_EVENTS+15;i++)PushDiagnostics.event("E"+i,"n="+i);
+  String[] events=PushDiagnostics.events();
+  check(events.length==PushDiagnostics.MAX_EVENTS,"event history bounded: "+events.length);
+  check(events[events.length-1].endsWith("|E"+(PushDiagnostics.MAX_EVENTS+14)+"|n="+(PushDiagnostics.MAX_EVENTS+14)),"newest event kept last");
+  check(events[0].contains("|E15|"),"oldest events dropped");
+  PushDiagnostics.event("PUSH_TYPE","Hi \\"friend\\" | token/abc\\nline");
+  String last=PushDiagnostics.events()[PushDiagnostics.events().length-1];
+  check(last.split("\\\\|").length==3 && !last.contains("\\"") && !last.contains("/"),"event detail sanitized: "+last);
+  check(PushDiagnostics.safeDetail(null).isEmpty() && PushDiagnostics.safeDetail("x".repeat(200)).length()==60,"detail length bounded");
+  // Registration and token steps are logged without raw values.
+  PushDiagnostics.clear();
+  PushDiagnostics.tokenReady(token);
+  PushDiagnostics.registrationStarted(2,user,token);
+  PushDiagnostics.registrationResult(2,user,token,false,400,"APP_PUSH_APIKEY_MISSING");
+  String log=String.join("\\n",PushDiagnostics.events());
+  check(log.contains("TOKEN_READY|new ")&&log.contains("REGISTER_START|account 2")&&log.contains("REGISTER_FAILED|account 2 400: APP_PUSH_APIKEY_MISSING"),"steps logged: "+log);
+  PushDiagnostics.tokenReady(token);
+  check(PushDiagnostics.events()[PushDiagnostics.events().length-1].contains("TOKEN_READY|same "),"unchanged token noted");
+  // Self-test: not run -> waiting -> push received with outcome; outside window -> no push.
+  PushDiagnostics.clear();
+  check(PushDiagnostics.snapshot(0,user).selfTestState.equals("not_run"),"self-test idle");
+  PushDiagnostics.pushOutcome("SENT to notifications MESSAGE_TEXT");
+  PushDiagnostics.selfTestStarted();
+  check(PushDiagnostics.snapshot(0,user).selfTestState.equals("waiting"),"self-test waiting");
+  check(PushDiagnostics.snapshot(0,user).selfTestOutcome.isEmpty(),"outcome before test ignored");
+  PushDiagnostics.received(System.currentTimeMillis()-1500,1,1);
+  PushDiagnostics.pushOutcome("SENT to notifications MESSAGE_TEXT");
+  PushDiagnostics.pushOutcome("HANDLED without notification READ_HISTORY");
+  PushDiagnostics.Snapshot passed=PushDiagnostics.snapshot(0,user);
+  check(passed.selfTestState.equals("push_received"),"self-test passed");
+  check(passed.selfTestOutcome.equals("SENT to notifications MESSAGE_TEXT"),"first outcome after test kept");
+  check(passed.lastOutcome.equals("HANDLED without notification READ_HISTORY"),"latest outcome tracked");
+  check(String.join("\\n",PushDiagnostics.events()).contains("PUSH_RECEIVED|priority=1 original=1 delay=1s"),"receipt delay logged");
+  prefs.values.put("selftest_started_at",System.currentTimeMillis()-PushDiagnostics.SELF_TEST_WINDOW_MS-1000);
+  prefs.values.remove("selftest_push_at");
+  check(PushDiagnostics.snapshot(0,user).selfTestState.equals("no_push"),"self-test times out");
+  PushDiagnostics.received(0,1,1);
+  check(PushDiagnostics.snapshot(0,user).selfTestState.equals("no_push"),"late push does not pass the test");
+  PushDiagnostics.callbackTimedOut();
+  PushDiagnostics.callbackTimedOut();
+  check(PushDiagnostics.snapshot(0,user).timeoutCount==2,"timeouts counted");
+  for(Object value:prefs.values.values()){
+   check(!value.toString().contains(token),"no raw token stored in events");
+   check(!value.toString().contains(Long.toString(user)),"no raw user ID stored in events");
+  }
+  System.out.println("PASS: diagnostics transitions, account/token isolation, errors, receipt races, concurrency, privacy, clearing, event history, self-test and timeouts");
  }
 }''',
 }
