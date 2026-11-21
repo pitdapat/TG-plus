@@ -18,6 +18,7 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.core.app.NotificationManagerCompat;
+import androidx.core.content.FileProvider;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -34,6 +35,7 @@ import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.PushDiagnostics;
 import org.telegram.messenger.R;
 import org.telegram.messenger.UserConfig;
+import org.telegram.messenger.tgplus.PushReportJson;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.BaseFragment;
 import org.telegram.ui.ActionBar.Theme;
@@ -42,9 +44,14 @@ import org.telegram.ui.Cells.TextSettingsCell;
 import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.Components.RecyclerListView;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 
@@ -55,7 +62,9 @@ public class PushDiagnosticsActivity extends BaseFragment {
     private static final int SHOWN_EVENTS = 12;
     // Rows: 0..7 details, 8..11 buttons, 12 footer.
     private static final int DETAIL_ROWS = 8, ROW_SELF_TEST = 8, ROW_APP_SETTINGS = 9, ROW_COPY = 10,
-            ROW_CLEAR = 11, ROW_COUNT = 13;
+            ROW_SHARE_FILE = 11, ROW_CLEAR = 12, ROW_COUNT = 14;
+    /** Structured copy of the values shown, for the JSON export. Filled by updateDetails(). */
+    private final LinkedHashMap<String, Object> report = new LinkedHashMap<>();
     private final String[] details = new String[DETAIL_ROWS];
     private String fullEventLog = "";
     private ListAdapter adapter;
@@ -126,6 +135,28 @@ public class PushDiagnosticsActivity extends BaseFragment {
         if (context == null) return;
         UserConfig account = UserConfig.getInstance(currentAccount);
         PushDiagnostics.Snapshot s = PushDiagnostics.snapshot(currentAccount, account.getClientUserId());
+        report.clear();
+        report.put("format", PushReportJson.FORMAT);
+        report.put("generated_at", PushReportJson.isoTime(System.currentTimeMillis()));
+        LinkedHashMap<String, Object> app = section("app");
+        app.put("build", buildLabel(context));
+        app.put("package", ApplicationLoader.getApplicationId());
+        app.put("current_account", currentAccount);
+        LinkedHashMap<String, Object> token = section("token");
+        token.put("state", s.tokenState);
+        token.put("error", s.tokenError);
+        token.put("last_request", PushReportJson.isoTime(s.tokenRequestAt));
+        token.put("last_result", PushReportJson.isoTime(s.tokenResultAt));
+        LinkedHashMap<String, Object> pushes = section("pushes");
+        pushes.put("received_since_clear", s.receivedCount);
+        pushes.put("last_received", PushReportJson.isoTime(s.receivedAt));
+        pushes.put("last_sender_time", PushReportJson.isoTime(s.sentAt));
+        pushes.put("last_callback_finished", PushReportJson.isoTime(s.finishedAt));
+        pushes.put("last_outcome", s.lastOutcome);
+        pushes.put("last_outcome_at", PushReportJson.isoTime(s.lastOutcomeAt));
+        pushes.put("callback_timeouts", s.timeoutCount);
+        pushes.put("priority", s.priority);
+        pushes.put("original_priority", s.originalPriority);
         details[0] = text(R.string.PushDiagPrivacy) + "\n\n" + buildLabel(context)
                 + " • " + ApplicationLoader.getApplicationId();
         details[1] = configSection(context, s);
@@ -159,6 +190,7 @@ public class PushDiagnosticsActivity extends BaseFragment {
             if (events.length - i <= SHOWN_EVENTS) recent.append("\n").append(formatted);
         }
         fullEventLog = all.toString();
+        report.put("events", PushReportJson.parseEvents(events));
         details[7] = recent.toString();
         if (adapter != null) adapter.notifyItemRangeChanged(0, DETAIL_ROWS);
     }
@@ -185,6 +217,10 @@ public class PushDiagnosticsActivity extends BaseFragment {
             if (options.getProjectId() != null) project = options.getProjectId();
             if (options.getGcmSenderId() != null) sender = options.getGcmSenderId();
         } catch (Exception ignore) {}
+        LinkedHashMap<String, Object> config = section("config");
+        config.put("api_id_kind", sampleApi ? "upstream_sample" : "own");
+        config.put("firebase_project", project);
+        config.put("firebase_sender", sender);
         String verdict;
         if (sampleApi) {
             verdict = text(R.string.PushDiagVerdictSampleApi);
@@ -195,6 +231,7 @@ public class PushDiagnosticsActivity extends BaseFragment {
         } else {
             verdict = text(R.string.PushDiagVerdictReceiving);
         }
+        config.put("summary", verdict);
         return text(R.string.PushDiagVerdict) + ": " + verdict
                 + "\n\n" + line(R.string.PushDiagApiId, sampleApi
                     ? SAMPLE_API_ID + " (" + text(R.string.PushDiagApiSample) + ")"
@@ -204,6 +241,11 @@ public class PushDiagnosticsActivity extends BaseFragment {
     }
 
     private String selfTestSection(PushDiagnostics.Snapshot s) {
+        LinkedHashMap<String, Object> test = section("self_test");
+        test.put("state", s.selfTestState);
+        test.put("started_at", PushReportJson.isoTime(s.selfTestStartedAt));
+        test.put("push_after_seconds", s.selfTestPushAt > 0 ? (s.selfTestPushAt - s.selfTestStartedAt) / 1000 : null);
+        test.put("outcome", s.selfTestOutcome);
         String state;
         switch (s.selfTestState) {
             case "waiting": {
@@ -226,6 +268,8 @@ public class PushDiagnosticsActivity extends BaseFragment {
     }
 
     private String registrationSection() {
+        ArrayList<Object> accounts = new ArrayList<>();
+        report.put("accounts", accounts);
         StringBuilder out = new StringBuilder();
         for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
             UserConfig config = UserConfig.getInstance(a);
@@ -238,6 +282,14 @@ public class PushDiagnosticsActivity extends BaseFragment {
                     .append("\n").append(line(R.string.PushDiagStoredRegistration, yes(config.registeredForPush)))
                     .append("\n").append(line(R.string.PushDiagLastResult, when(s.registrationAt)));
             if (!s.registrationError.isEmpty()) out.append("\n").append(line(R.string.PushDiagError, s.registrationError));
+            LinkedHashMap<String, Object> entry = new LinkedHashMap<>();
+            entry.put("slot", a);
+            entry.put("current", a == currentAccount);
+            entry.put("registration", s.registrationState);
+            entry.put("cached_registered_flag", config.registeredForPush);
+            entry.put("last_result", PushReportJson.isoTime(s.registrationAt));
+            entry.put("error", s.registrationError);
+            accounts.add(entry);
         }
         if (out.length() == 0) out.append(line(R.string.PushDiagLoggedIn, yes(false)));
         return out.toString();
@@ -255,6 +307,7 @@ public class PushDiagnosticsActivity extends BaseFragment {
         String dnd = text(R.string.PushDiagUnknown);
         String blocked = text(R.string.PushDiagUnknown);
         String dataSaver = text(R.string.PushDiagUnknown);
+        ArrayList<Object> channelsReport = new ArrayList<>();
         try {
             ActivityManager am = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
             if (Build.VERSION.SDK_INT >= 28 && am != null) restricted = yes(am.isBackgroundRestricted());
@@ -274,9 +327,17 @@ public class PushDiagnosticsActivity extends BaseFragment {
                 if (Build.VERSION.SDK_INT >= 26) {
                     List<NotificationChannel> channels = nm.getNotificationChannels();
                     int off = 0;
+                    ArrayList<Object> channelList = new ArrayList<>();
                     for (NotificationChannel channel : channels) {
                         if (channel.getImportance() == NotificationManager.IMPORTANCE_NONE) off++;
+                        LinkedHashMap<String, Object> c = new LinkedHashMap<>();
+                        // Channel IDs are generated by the app (no chat names); keep them for matching.
+                        c.put("id", channel.getId());
+                        c.put("importance", channel.getImportance());
+                        c.put("group", channel.getGroup());
+                        channelList.add(c);
                     }
+                    channelsReport = channelList;
                     blocked = off + " / " + channels.size();
                 }
             }
@@ -287,6 +348,20 @@ public class PushDiagnosticsActivity extends BaseFragment {
                 dataSaver = yes(cm.getRestrictBackgroundStatus() == ConnectivityManager.RESTRICT_BACKGROUND_STATUS_ENABLED);
             }
         } catch (Exception ignore) {}
+        LinkedHashMap<String, Object> device = section("device");
+        device.put("model", Build.MANUFACTURER + " " + Build.MODEL);
+        device.put("android", Build.VERSION.RELEASE);
+        device.put("sdk", Build.VERSION.SDK_INT);
+        device.put("play_services", play);
+        device.put("notifications_enabled", NotificationManagerCompat.from(context).areNotificationsEnabled());
+        device.put("channels_off", blocked);
+        device.put("do_not_disturb", dnd);
+        device.put("background_restricted", restricted);
+        device.put("battery_exempt", exempt);
+        device.put("standby_bucket", bucket);
+        device.put("data_saver_blocks_background", dataSaver);
+        device.put("screen_on", ApplicationLoader.isScreenOn);
+        device.put("channels", channelsReport);
         return line(R.string.PushDiagDevice, Build.MANUFACTURER + " " + Build.MODEL + ", Android " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ")")
                 + "\n" + line(R.string.PushDiagPlayServices, play)
                 + "\n" + line(R.string.PushDiagNotificationsEnabled, yes(NotificationManagerCompat.from(context).areNotificationsEnabled()))
@@ -296,6 +371,42 @@ public class PushDiagnosticsActivity extends BaseFragment {
                 + "\n" + line(R.string.PushDiagBatteryExempt, exempt)
                 + "\n" + line(R.string.PushDiagStandbyBucket, bucket)
                 + "\n" + line(R.string.PushDiagDataSaver, dataSaver);
+    }
+
+    @SuppressWarnings("unchecked")
+    private LinkedHashMap<String, Object> section(String name) {
+        Object existing = report.get(name);
+        if (existing instanceof LinkedHashMap) return (LinkedHashMap<String, Object>) existing;
+        LinkedHashMap<String, Object> map = new LinkedHashMap<>();
+        report.put(name, map);
+        return map;
+    }
+
+    /** Writes the JSON report to app-private storage and opens the system share sheet. */
+    private void shareReportFile() {
+        if (getParentActivity() == null) return;
+        updateDetails();
+        try {
+            File dir = new File(ApplicationLoader.applicationContext.getFilesDir(), "logs");
+            if (!dir.isDirectory() && !dir.mkdirs()) throw new IllegalStateException("no logs dir");
+            // One report file at a time, so old reports do not accumulate.
+            File[] old = dir.listFiles((d, name) -> name.startsWith("tgplus-push-report-"));
+            if (old != null) for (File f : old) f.delete();
+            String stamp = new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(new Date());
+            File file = new File(dir, "tgplus-push-report-" + stamp + ".json");
+            try (FileOutputStream out = new FileOutputStream(file)) {
+                out.write(PushReportJson.toJson(report).getBytes(StandardCharsets.UTF_8));
+            }
+            Intent intent = new Intent(Intent.ACTION_SEND);
+            intent.setType("application/json");
+            intent.putExtra(Intent.EXTRA_STREAM, FileProvider.getUriForFile(getParentActivity(),
+                    ApplicationLoader.getApplicationId() + ".provider", file));
+            intent.putExtra(Intent.EXTRA_SUBJECT, file.getName());
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            getParentActivity().startActivity(Intent.createChooser(intent, text(R.string.PushDiagShareFile)));
+        } catch (Exception e) {
+            Toast.makeText(getContext(), text(R.string.PushDiagShareFailed), Toast.LENGTH_LONG).show();
+        }
     }
 
     private static String standbyBucket(int bucket) {
@@ -347,6 +458,8 @@ public class PushDiagnosticsActivity extends BaseFragment {
             summary.append("\n\n").append(fullEventLog);
             AndroidUtilities.addToClipboard(summary.toString());
             Toast.makeText(getContext(), text(R.string.TextCopied), Toast.LENGTH_SHORT).show();
+        } else if (position == ROW_SHARE_FILE) {
+            shareReportFile();
         } else if (position == ROW_CLEAR) {
             PushDiagnostics.clear();
             updateDetails();
@@ -390,7 +503,8 @@ public class PushDiagnosticsActivity extends BaseFragment {
                 ((TextInfoPrivacyCell) holder.itemView).setText(position < DETAIL_ROWS ? details[position] : text(R.string.PushDiagTestInfo));
             } else {
                 int title = position == ROW_SELF_TEST ? R.string.PushDiagSelfTest : position == ROW_APP_SETTINGS ? R.string.PushDiagAppSettings
-                        : position == ROW_COPY ? R.string.PushDiagCopy : R.string.PushDiagClear;
+                        : position == ROW_COPY ? R.string.PushDiagCopy : position == ROW_SHARE_FILE ? R.string.PushDiagShareFile
+                        : R.string.PushDiagClear;
                 ((TextSettingsCell) holder.itemView).setText(text(title), position < ROW_CLEAR);
             }
         }
